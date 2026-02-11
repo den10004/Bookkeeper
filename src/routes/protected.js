@@ -2,14 +2,234 @@ const express = require("express");
 const verifyToken = require("../middleware/auth");
 const roleMiddleware = require("../middleware/role");
 const User = require("../models/user");
+const fs = require("fs-extra");
+const path = require("path");
+const Application = require("../models/application");
 const bcrypt = require("bcryptjs");
+const multer = require("multer");
 
 const router = express.Router();
 
-// Отладочный middleware (можно убрать позже)
-router.use((req, res, next) => {
-  console.log(`Protected route hit: ${req.method} ${req.originalUrl}`);
-  next();
+const upload = multer({
+  dest: "tmp/", // временная папка
+  limits: { fileSize: 10 * 1024 * 1024 }, // лимит 10 МБ на файл
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = [
+      "image/jpeg",
+      "image/png",
+      "application/pdf",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(
+        new Error(
+          "Недопустимый тип файла. Разрешены: jpg, png, pdf, doc, docx",
+        ),
+      );
+    }
+  },
+});
+
+// Создание заявки — только менеджер
+router.post(
+  "/applications",
+  verifyToken,
+  roleMiddleware(["manager"]),
+  upload.array("files", 10), // до 10 файлов, имя поля в форме — files
+  async (req, res) => {
+    const {
+      name,
+      organization,
+      cost,
+      quantity,
+      comment,
+      assignedAccountantId,
+    } = req.body;
+
+    // Простая валидация
+    if (!name || !organization || !cost || !quantity || !assignedAccountantId) {
+      return res.status(400).json({
+        message:
+          "Обязательные поля: name, organization, cost, quantity, assignedAccountantId",
+      });
+    }
+
+    try {
+      const accountant = await User.findByPk(assignedAccountantId);
+      if (!accountant || accountant.role !== "accountant") {
+        return res.status(400).json({
+          message:
+            "assignedAccountantId должен ссылаться на пользователя с ролью accountant",
+        });
+      }
+      const application = await Application.create({
+        name,
+        organization,
+        cost: parseFloat(cost),
+        quantity: parseInt(quantity, 10),
+        comment: comment || null,
+        userId: req.user.id,
+        assignedAccountantId: parseInt(assignedAccountantId, 10),
+      });
+
+      // Папка для файлов этой заявки: uploads/<id заявки>
+      const uploadDir = path.join(
+        __dirname,
+        "../../uploads",
+        application.id.toString(),
+      );
+      await fs.ensureDir(uploadDir);
+
+      // Массив имён файлов для сохранения в БД
+      const savedFiles = [];
+
+      // Обрабатываем загруженные файлы
+      if (req.files && req.files.length > 0) {
+        for (const file of req.files) {
+          const originalName = file.originalname;
+          const newPath = path.join(uploadDir, originalName);
+
+          // Перемещаем файл из tmp в нужную папку
+          await fs.move(file.path, newPath, { overwrite: true });
+
+          savedFiles.push(originalName);
+        }
+      }
+
+      // Сохраняем список файлов в заявку
+      await application.update({ files: savedFiles });
+
+      // Ссылки для скачивания
+      const downloadLinks = savedFiles.map(
+        (file) =>
+          `/protected/download/${application.id}/${encodeURIComponent(file)}`,
+      );
+
+      res.status(201).json({
+        message: "Заявка создана",
+        application: {
+          id: application.id,
+          name,
+          organization,
+          cost: application.cost,
+          quantity: application.quantity,
+          comment,
+          assignedAccountantId: application.assignedAccountantId,
+          files: downloadLinks,
+        },
+      });
+    } catch (err) {
+      console.error("Ошибка при создании заявки:", err);
+      res.status(500).json({ message: "Ошибка сервера при создании заявки" });
+    }
+  },
+);
+
+router.get("/applications", verifyToken, async (req, res) => {
+  try {
+    let applications;
+
+    if (req.user.role === "director") {
+      // Директор видит ВСЕ заявки
+      applications = await Application.findAll({
+        include: [
+          {
+            model: User,
+            as: "Creator",
+            attributes: ["id", "username", "email", "role"],
+          },
+          {
+            model: User,
+            as: "AssignedAccountant",
+            attributes: ["id", "username", "email", "role"],
+          },
+        ],
+        order: [["createdAt", "DESC"]],
+      });
+    } else if (req.user.role === "accountant") {
+      // Бухгалтер видит ТОЛЬКО те заявки, которые адресованы именно ему
+      applications = await Application.findAll({
+        where: { assignedAccountantId: req.user.id },
+        include: [
+          {
+            model: User,
+            as: "Creator",
+            attributes: ["id", "username", "email", "role"],
+          },
+          {
+            model: User,
+            as: "AssignedAccountant",
+            attributes: ["id", "username", "email", "role"],
+          },
+        ],
+        order: [["createdAt", "DESC"]],
+      });
+    } else if (req.user.role === "manager") {
+      // Менеджер видит только свои созданные заявки
+      applications = await Application.findAll({
+        where: { userId: req.user.id },
+        include: [
+          {
+            model: User,
+            as: "Creator",
+            attributes: ["id", "username", "email", "role"],
+          },
+          {
+            model: User,
+            as: "AssignedAccountant",
+            attributes: ["id", "username", "email", "role"],
+          },
+        ],
+        order: [["createdAt", "DESC"]],
+      });
+    } else {
+      return res.status(403).json({ message: "Нет прав для просмотра заявок" });
+    }
+
+    // Если ничего не найдено — возвращаем пустой массив
+    res.json(applications || []);
+  } catch (err) {
+    console.error("Ошибка при получении заявок:", err);
+    res.status(500).json({
+      message: "Ошибка сервера при получении заявок",
+      error: err.message,
+    });
+  }
+});
+
+router.get("/applications/:id", verifyToken, async (req, res) => {
+  try {
+    const application = await Application.findByPk(req.params.id, {
+      include: [
+        { model: User, as: "Creator", attributes: ["id", "username", "email"] },
+        {
+          model: User,
+          as: "AssignedAccountant",
+          attributes: ["id", "username", "email"],
+        },
+      ],
+    });
+
+    if (!application) {
+      return res.status(404).json({ message: "Заявка не найдена" });
+    }
+
+    const canView =
+      req.user.role === "director" ||
+      application.userId === req.user.id ||
+      application.assignedAccountantId === req.user.id;
+
+    if (!canView) {
+      return res.status(403).json({ message: "Нет доступа к этой заявке" });
+    }
+
+    res.json(application);
+  } catch (err) {
+    res.status(500).json({ message: "Ошибка сервера" });
+  }
 });
 
 // ───────────────────────────────────────────────

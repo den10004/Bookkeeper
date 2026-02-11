@@ -24,8 +24,6 @@ POST http://localhost:3000/auth/register
 
 ---
 
----
-
 Вход пользователя
 POST http://localhost:3000/auth/login
 
@@ -63,3 +61,18 @@ DELETE http://localhost:3000/protected/users/:id
 токен
 
 --
+Создание заявки менеджером для бухгалтера
+
+POST http://localhost:3000/protected/applications
+(form-data)
+name: "Закупка канцелярии"
+organization: "Поставщик ООО"
+cost: 4500.00
+quantity: 200
+comment: "Нужны до конца недели"
+assignedAccountantId: 3 ← id бухгалтера
+files: (файлы)
+
+Получение заявки бухгалтером или директором (все заявки)
+GET http://localhost:3000/protected/applications
+токен
