@@ -1,22 +1,25 @@
 const express = require("express");
-const cors = require("cors");
 const sequelize = require("./config/db");
-
 const authRoutes = require("./routes/auth");
 const protectedRoutes = require("./routes/protected");
 
 const app = express();
-
-app.use(cors());
 app.use(express.json());
 
-// Роуты
-app.use("/api/auth", authRoutes);
-app.use("/api", protectedRoutes);
+(async () => {
+  try {
+    await sequelize.sync({ force: false });
+    console.log("Database synced");
+  } catch (err) {
+    console.error("Database sync error:", err);
+  }
+})();
 
-// Тестовый маршрут
-app.get("/", (req, res) => {
-  res.json({ message: "Accounting App API" });
+app.use("/auth", authRoutes);
+app.use("/protected", protectedRoutes);
+
+app.use((req, res) => {
+  res.status(404).json({ message: "Маршрут не найден" });
 });
 
 module.exports = app;
