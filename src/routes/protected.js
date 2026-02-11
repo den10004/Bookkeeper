@@ -38,7 +38,7 @@ router.post(
   "/applications",
   verifyToken,
   roleMiddleware(["manager"]),
-  upload.array("files", 10), // до 10 файлов, имя поля в форме — files
+  upload.array("files", 10),
   async (req, res) => {
     const {
       name,
@@ -49,7 +49,7 @@ router.post(
       assignedAccountantId,
     } = req.body;
 
-    // Простая валидация
+    // Валидация
     if (!name || !organization || !cost || !quantity || !assignedAccountantId) {
       return res.status(400).json({
         message:
@@ -58,6 +58,7 @@ router.post(
     }
 
     try {
+      // Проверка бухгалтера
       const accountant = await User.findByPk(assignedAccountantId);
       if (!accountant || accountant.role !== "accountant") {
         return res.status(400).json({
@@ -65,6 +66,8 @@ router.post(
             "assignedAccountantId должен ссылаться на пользователя с ролью accountant",
         });
       }
+
+      // Создаём заявку
       const application = await Application.create({
         name,
         organization,
@@ -75,55 +78,57 @@ router.post(
         assignedAccountantId: parseInt(assignedAccountantId, 10),
       });
 
-      // Папка для файлов этой заявки: uploads/<id заявки>
+      // Папка для файлов
       const uploadDir = path.join(
         __dirname,
         "../../uploads",
-        application.id.toString(),
+        String(application.id),
       );
       await fs.ensureDir(uploadDir);
 
-      // Массив имён файлов для сохранения в БД
       const savedFiles = [];
 
-      // Обрабатываем загруженные файлы
-      if (req.files && req.files.length > 0) {
+      // Сохранение файлов
+      if (req.files?.length > 0) {
         for (const file of req.files) {
           const originalName = file.originalname;
           const newPath = path.join(uploadDir, originalName);
 
-          // Перемещаем файл из tmp в нужную папку
           await fs.move(file.path, newPath, { overwrite: true });
-
           savedFiles.push(originalName);
         }
       }
 
-      // Сохраняем список файлов в заявку
+      // Обновляем заявку с файлами
       await application.update({ files: savedFiles });
 
-      // Ссылки для скачивания
+      // Формируем ссылки
       const downloadLinks = savedFiles.map(
         (file) =>
           `/protected/download/${application.id}/${encodeURIComponent(file)}`,
       );
 
+      // Ответ клиенту
       res.status(201).json({
-        message: "Заявка создана",
+        message: "Заявка успешно создана",
         application: {
           id: application.id,
-          name,
-          organization,
-          cost: application.cost,
+          name: application.name,
+          organization: application.organization,
+          cost: Number(application.cost), // чтобы не было строки
           quantity: application.quantity,
-          comment,
+          comment: application.comment,
           assignedAccountantId: application.assignedAccountantId,
-          files: downloadLinks,
+          files: downloadLinks, // ← ссылки
+          createdAt: application.createdAt.toISOString(),
         },
       });
     } catch (err) {
       console.error("Ошибка при создании заявки:", err);
-      res.status(500).json({ message: "Ошибка сервера при создании заявки" });
+      res.status(500).json({
+        message: "Ошибка сервера при создании заявки",
+        error: process.env.NODE_ENV === "development" ? err.message : undefined,
+      });
     }
   },
 );
@@ -231,6 +236,62 @@ router.get("/applications/:id", verifyToken, async (req, res) => {
     res.status(500).json({ message: "Ошибка сервера" });
   }
 });
+router.get(
+  "/download/:applicationId/:filename",
+  verifyToken,
+  async (req, res) => {
+    const { applicationId, filename } = req.params;
+
+    try {
+      // Находим заявку
+      const application = await Application.findByPk(applicationId);
+      if (!application) {
+        return res.status(404).json({ message: "Заявка не найдена" });
+      }
+
+      // Проверяем, есть ли такой файл в заявке
+      if (!application.files.includes(filename)) {
+        return res.status(404).json({ message: "Файл не найден в заявке" });
+      }
+
+      // Проверяем права доступа (пример — можно ужесточить)
+      const canAccess =
+        req.user.role === "director" ||
+        application.userId === req.user.id ||
+        application.assignedAccountantId === req.user.id;
+
+      if (!canAccess) {
+        return res.status(403).json({ message: "Нет доступа к файлу" });
+      }
+
+      // Путь к файлу на сервере
+      const filePath = path.join(
+        __dirname,
+        "../../uploads",
+        applicationId,
+        filename,
+      );
+
+      // Проверяем существование файла
+      if (!fs.existsSync(filePath)) {
+        return res
+          .status(404)
+          .json({ message: "Файл физически не найден на сервере" });
+      }
+
+      // Отправляем файл для скачивания
+      res.download(filePath, filename, (err) => {
+        if (err) {
+          console.error("Ошибка отправки файла:", err);
+          res.status(500).json({ message: "Ошибка при скачивании файла" });
+        }
+      });
+    } catch (err) {
+      console.error("Ошибка в маршруте скачивания:", err);
+      res.status(500).json({ message: "Ошибка сервера" });
+    }
+  },
+);
 
 // ───────────────────────────────────────────────
 // 1. Получить данные текущего пользователя (о себе)

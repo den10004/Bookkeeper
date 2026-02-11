@@ -34,6 +34,16 @@ const Application = sequelize.define(
       type: DataTypes.JSON, // массив путей к файлам, напр. ["file1.pdf", "file2.jpg"]
       defaultValue: [],
     },
+    downloadLinks: {
+      type: DataTypes.VIRTUAL,
+      get() {
+        const files = this.getDataValue("files") || [];
+        return files.map(
+          (fileName) =>
+            `/protected/download/${this.id}/${encodeURIComponent(fileName)}`,
+        );
+      },
+    },
     userId: {
       type: DataTypes.INTEGER,
       allowNull: false,
