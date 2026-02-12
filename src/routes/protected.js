@@ -6,32 +6,8 @@ const fs = require("fs-extra");
 const path = require("path");
 const Application = require("../models/application");
 const bcrypt = require("bcryptjs");
-const multer = require("multer");
-
+const upload = require("../middleware/upload");
 const router = express.Router();
-
-const upload = multer({
-  dest: "tmp/",
-  limits: { fileSize: 10 * 1024 * 1024 }, // лимит 10 МБ на файл
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = [
-      "image/jpeg",
-      "image/png",
-      "application/pdf",
-      "application/msword",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ];
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(
-        new Error(
-          "Недопустимый тип файла. Разрешены: jpg, png, pdf, doc, docx",
-        ),
-      );
-    }
-  },
-});
 
 // ───────────────────────────────────────────────
 // 1. Заявки
@@ -41,6 +17,7 @@ router.post(
   verifyToken,
   roleMiddleware(["manager"]),
   upload.array("files", 10),
+  require("../middleware/cleanupTmp"),
   async (req, res) => {
     const {
       name,
@@ -279,6 +256,7 @@ router.put(
   "/applications/:id",
   verifyToken,
   upload.array("files", 10), // позволяет добавлять новые файлы
+  require("../middleware/cleanupTmp"),
   async (req, res) => {
     const { id } = req.params;
     const {
@@ -426,6 +404,7 @@ router.delete("/applications/:id", verifyToken, async (req, res) => {
       }
     }
 
+    // Удаляем запись заявки из базы данных
     await application.destroy();
 
     res.json({
