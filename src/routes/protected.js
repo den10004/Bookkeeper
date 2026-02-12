@@ -10,6 +10,70 @@ const upload = require("../middleware/upload");
 const router = express.Router();
 
 // ───────────────────────────────────────────────
+// Регистрация
+// ───────────────────────────────────────────────
+
+router.post(
+  "/users",
+  verifyToken,
+  roleMiddleware(["director"]),
+  async (req, res) => {
+    const { username, password, role, email } = req.body;
+
+    // Валидация
+    if (!username || !password || !role) {
+      return res.status(400).json({
+        message: "Обязательные поля: username, password, role",
+      });
+    }
+
+    if (!["accountant", "director", "manager"].includes(role)) {
+      return res.status(400).json({
+        message: "Недопустимая роль. Допустимые: accountant, director, manager",
+      });
+    }
+
+    try {
+      const existingUser = await User.findOne({ where: { username } });
+      if (existingUser) {
+        return res
+          .status(409)
+          .json({ message: "Пользователь с таким username уже существует" });
+      }
+
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      const newUser = await User.create({
+        username,
+        password: hashedPassword,
+        role,
+        email: email || null, // если добавите поле email в модель
+      });
+
+      // Не возвращаем пароль!
+      const userData = {
+        id: newUser.id,
+        username: newUser.username,
+        role: newUser.role,
+        email: newUser.email,
+        createdAt: newUser.createdAt,
+      };
+
+      res.status(201).json({
+        message: "Пользователь успешно создан",
+        user: userData,
+      });
+    } catch (err) {
+      console.error("Ошибка создания пользователя:", err);
+      res.status(500).json({
+        message: "Ошибка сервера при создании пользователя",
+        error: process.env.NODE_ENV === "development" ? err.message : undefined,
+      });
+    }
+  },
+);
+
+// ───────────────────────────────────────────────
 // 1. Заявки
 // ───────────────────────────────────────────────
 router.post(

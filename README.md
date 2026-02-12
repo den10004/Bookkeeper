@@ -14,8 +14,8 @@ accountant, director, manager
 
 ---
 
-Создание пользователя
-POST http://localhost:3000/auth/register
+Создание пользователя только Директор
+POST http://localhost:3000/protected/users
 
 {
 "username": "accountant1",

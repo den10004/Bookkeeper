@@ -6,7 +6,7 @@ const User = require("../models/user");
 require("dotenv").config();
 
 const router = express.Router();
-
+/*
 router.post("/register", async (req, res) => {
   const { username, email, password, role } = req.body;
 
@@ -62,7 +62,7 @@ router.post("/register", async (req, res) => {
       error: err.message,
     });
   }
-});
+});*/
 
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
