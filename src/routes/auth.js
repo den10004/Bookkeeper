@@ -10,13 +10,10 @@ const router = express.Router();
 router.post("/register", async (req, res) => {
   const { username, email, password, role } = req.body;
 
-  // Валидация входных данных
   if (!username || !email || !password || !role) {
-    return res
-      .status(400)
-      .json({
-        message: "Все поля обязательны: username, email, password, role",
-      });
+    return res.status(400).json({
+      message: "Все поля обязательны: username, email, password, role",
+    });
   }
 
   if (!["accountant", "director", "manager"].includes(role)) {
@@ -24,14 +21,12 @@ router.post("/register", async (req, res) => {
   }
 
   try {
-    // Проверяем существование пользователя (по username ИЛИ email)
     const existingUser = await User.findOne({
       where: {
         [Sequelize.Op.or]: [{ username: username }, { email: email }],
       },
     });
 
-    // Теперь existingUser точно существует в этой области видимости
     if (existingUser) {
       if (existingUser.username === username) {
         return res.status(400).json({ message: "Username уже занят" });
@@ -39,11 +34,9 @@ router.post("/register", async (req, res) => {
       if (existingUser.email === email) {
         return res.status(400).json({ message: "Email уже зарегистрирован" });
       }
-      // на всякий случай
       return res.status(400).json({ message: "Пользователь уже существует" });
     }
 
-    // Если дошли сюда — пользователя нет, создаём
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const user = await User.create({
@@ -53,7 +46,6 @@ router.post("/register", async (req, res) => {
       role,
     });
 
-    // Успешный ответ
     res.status(201).json({
       message: "Пользователь успешно зарегистрирован",
       user: {
@@ -67,35 +59,29 @@ router.post("/register", async (req, res) => {
     console.error("Ошибка регистрации:", err);
     res.status(500).json({
       message: "Ошибка сервера при регистрации",
-      error: err.message, // временно для отладки
+      error: err.message,
     });
   }
 });
 
-// Login
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
 
-  // Проверка обязательных полей
   if (!email || !password) {
     return res.status(400).json({ message: "Укажите email и password" });
   }
 
   try {
-    // Ищем пользователя по email
     const user = await User.findOne({ where: { email } });
 
     if (!user) {
       return res.status(401).json({ message: "Неверный email или пароль" });
     }
 
-    // Проверяем пароль
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       return res.status(401).json({ message: "Неверный email или пароль" });
     }
-
-    // Генерируем токены
     const accessToken = jwt.sign(
       { id: user.id, role: user.role },
       process.env.JWT_SECRET,
@@ -122,7 +108,6 @@ router.post("/login", async (req, res) => {
   }
 });
 
-// Refresh Token
 router.post("/refresh", (req, res) => {
   const { refreshToken } = req.body;
   if (!refreshToken) {

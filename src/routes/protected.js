@@ -11,7 +11,7 @@ const multer = require("multer");
 const router = express.Router();
 
 const upload = multer({
-  dest: "tmp/", // временная папка
+  dest: "tmp/",
   limits: { fileSize: 10 * 1024 * 1024 }, // лимит 10 МБ на файл
   fileFilter: (req, file, cb) => {
     const allowedTypes = [
@@ -33,7 +33,9 @@ const upload = multer({
   },
 });
 
-// Создание заявки — только менеджер
+// ───────────────────────────────────────────────
+// 1. Заявки
+// ───────────────────────────────────────────────
 router.post(
   "/applications",
   verifyToken,
@@ -49,7 +51,6 @@ router.post(
       assignedAccountantId,
     } = req.body;
 
-    // Валидация
     if (!name || !organization || !cost || !quantity || !assignedAccountantId) {
       return res.status(400).json({
         message:
@@ -58,7 +59,6 @@ router.post(
     }
 
     try {
-      // Проверка бухгалтера
       const accountant = await User.findByPk(assignedAccountantId);
       if (!accountant || accountant.role !== "accountant") {
         return res.status(400).json({
@@ -67,7 +67,6 @@ router.post(
         });
       }
 
-      // Создаём заявку
       const application = await Application.create({
         name,
         organization,
@@ -78,7 +77,6 @@ router.post(
         assignedAccountantId: parseInt(assignedAccountantId, 10),
       });
 
-      // Папка для файлов
       const uploadDir = path.join(
         __dirname,
         "../../uploads",
@@ -88,7 +86,6 @@ router.post(
 
       const savedFiles = [];
 
-      // Сохранение файлов
       if (req.files?.length > 0) {
         for (const file of req.files) {
           const originalName = file.originalname;
@@ -99,27 +96,24 @@ router.post(
         }
       }
 
-      // Обновляем заявку с файлами
       await application.update({ files: savedFiles });
 
-      // Формируем ссылки
       const downloadLinks = savedFiles.map(
         (file) =>
           `/protected/download/${application.id}/${encodeURIComponent(file)}`,
       );
 
-      // Ответ клиенту
       res.status(201).json({
         message: "Заявка успешно создана",
         application: {
           id: application.id,
           name: application.name,
           organization: application.organization,
-          cost: Number(application.cost), // чтобы не было строки
+          cost: Number(application.cost),
           quantity: application.quantity,
           comment: application.comment,
           assignedAccountantId: application.assignedAccountantId,
-          files: downloadLinks, // ← ссылки
+          files: downloadLinks,
           createdAt: application.createdAt.toISOString(),
         },
       });
@@ -138,7 +132,6 @@ router.get("/applications", verifyToken, async (req, res) => {
     let applications;
 
     if (req.user.role === "director") {
-      // Директор видит ВСЕ заявки
       applications = await Application.findAll({
         include: [
           {
@@ -155,7 +148,6 @@ router.get("/applications", verifyToken, async (req, res) => {
         order: [["createdAt", "DESC"]],
       });
     } else if (req.user.role === "accountant") {
-      // Бухгалтер видит ТОЛЬКО те заявки, которые адресованы именно ему
       applications = await Application.findAll({
         where: { assignedAccountantId: req.user.id },
         include: [
@@ -173,7 +165,6 @@ router.get("/applications", verifyToken, async (req, res) => {
         order: [["createdAt", "DESC"]],
       });
     } else if (req.user.role === "manager") {
-      // Менеджер видит только свои созданные заявки
       applications = await Application.findAll({
         where: { userId: req.user.id },
         include: [
@@ -194,7 +185,6 @@ router.get("/applications", verifyToken, async (req, res) => {
       return res.status(403).json({ message: "Нет прав для просмотра заявок" });
     }
 
-    // Если ничего не найдено — возвращаем пустой массив
     res.json(applications || []);
   } catch (err) {
     console.error("Ошибка при получении заявок:", err);
@@ -243,18 +233,14 @@ router.get(
     const { applicationId, filename } = req.params;
 
     try {
-      // Находим заявку
       const application = await Application.findByPk(applicationId);
       if (!application) {
         return res.status(404).json({ message: "Заявка не найдена" });
       }
 
-      // Проверяем, есть ли такой файл в заявке
       if (!application.files.includes(filename)) {
         return res.status(404).json({ message: "Файл не найден в заявке" });
       }
-
-      // Проверяем права доступа (пример — можно ужесточить)
       const canAccess =
         req.user.role === "director" ||
         application.userId === req.user.id ||
@@ -263,8 +249,6 @@ router.get(
       if (!canAccess) {
         return res.status(403).json({ message: "Нет доступа к файлу" });
       }
-
-      // Путь к файлу на сервере
       const filePath = path.join(
         __dirname,
         "../../uploads",
@@ -272,14 +256,12 @@ router.get(
         filename,
       );
 
-      // Проверяем существование файла
       if (!fs.existsSync(filePath)) {
         return res
           .status(404)
           .json({ message: "Файл физически не найден на сервере" });
       }
 
-      // Отправляем файл для скачивания
       res.download(filePath, filename, (err) => {
         if (err) {
           console.error("Ошибка отправки файла:", err);
@@ -288,6 +270,104 @@ router.get(
       });
     } catch (err) {
       console.error("Ошибка в маршруте скачивания:", err);
+      res.status(500).json({ message: "Ошибка сервера" });
+    }
+  },
+);
+
+router.put(
+  "/applications/:id",
+  verifyToken,
+  upload.array("files", 10), // позволяет добавлять новые файлы
+  async (req, res) => {
+    const { id } = req.params;
+    const {
+      name,
+      organization,
+      cost,
+      quantity,
+      comment,
+      assignedAccountantId,
+    } = req.body;
+
+    try {
+      const application = await Application.findByPk(id);
+      if (!application) {
+        return res.status(404).json({ message: "Заявка не найдена" });
+      }
+
+      // Проверка прав доступа
+      const canEdit =
+        req.user.role === "director" || // директор может всё
+        application.assignedAccountantId === req.user.id || // назначенный бухгалтер
+        (req.user.role === "manager" && application.userId === req.user.id); // создатель (опционально)
+
+      if (!canEdit) {
+        return res
+          .status(403)
+          .json({ message: "Нет прав на редактирование этой заявки" });
+      }
+
+      // Формируем обновления полей (только если переданы)
+      const updates = {};
+      if (name) updates.name = name;
+      if (organization) updates.organization = organization;
+      if (cost) updates.cost = parseFloat(cost);
+      if (quantity) updates.quantity = parseInt(quantity, 10);
+      if (comment) updates.comment = comment;
+      if (assignedAccountantId) {
+        // Проверка нового бухгалтера
+        const newAccountant = await User.findByPk(assignedAccountantId);
+        if (!newAccountant || newAccountant.role !== "accountant") {
+          return res
+            .status(400)
+            .json({ message: "Неверный assignedAccountantId" });
+        }
+        updates.assignedAccountantId = parseInt(assignedAccountantId, 10);
+      }
+
+      // Добавляем новые файлы (расширяем существующий массив)
+      const existingFiles = application.files || [];
+      const newFiles = [];
+      if (req.files?.length > 0) {
+        const uploadDir = path.join(__dirname, "../../uploads", String(id));
+        await fs.ensureDir(uploadDir);
+
+        for (const file of req.files) {
+          const originalName = file.originalname;
+          const newPath = path.join(uploadDir, originalName);
+          await fs.move(file.path, newPath, { overwrite: true });
+          newFiles.push(originalName);
+        }
+      }
+
+      // Обновляем заявку
+      updates.files = [...existingFiles, ...newFiles];
+      await application.update(updates);
+
+      // Формируем ссылки для всех файлов
+      const allFiles = application.files;
+      const downloadLinks = allFiles.map(
+        (file) =>
+          `/protected/download/${application.id}/${encodeURIComponent(file)}`,
+      );
+
+      res.json({
+        message: "Заявка обновлена",
+        application: {
+          id: application.id,
+          name: application.name,
+          organization: application.organization,
+          cost: application.cost,
+          quantity: application.quantity,
+          comment: application.comment,
+          assignedAccountantId: application.assignedAccountantId,
+          files: downloadLinks,
+          updatedAt: application.updatedAt,
+        },
+      });
+    } catch (err) {
+      console.error("Ошибка редактирования заявки:", err);
       res.status(500).json({ message: "Ошибка сервера" });
     }
   },
@@ -319,7 +399,6 @@ router.get("/me", verifyToken, async (req, res) => {
 router.put("/update/:id", verifyToken, async (req, res) => {
   const { id } = req.params;
 
-  // Можно обновлять только свой аккаунт
   if (parseInt(id) !== req.user.id) {
     return res
       .status(403)
@@ -412,7 +491,6 @@ router.put(
   async (req, res) => {
     const { id } = req.params;
 
-    // Нельзя редактировать самого себя через этот маршрут (для безопасности)
     if (parseInt(id) === req.user.id) {
       return res
         .status(403)

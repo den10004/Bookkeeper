@@ -75,6 +75,13 @@ comment: "Нужны до конца недели"
 assignedAccountantId: 3 ← id бухгалтера
 files: (файлы)
 
+--
 Получение заявки бухгалтером или директором (все заявки)
 GET http://localhost:3000/protected/applications
+
+токен
+
+--
+Редактирование заявки бухгалтером или директором
+PUT http://localhost:3000/protected/applications/:id, где id заявки
 токен
