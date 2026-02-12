@@ -85,3 +85,8 @@ GET http://localhost:3000/protected/applications
 Редактирование заявки бухгалтером или директором
 PUT http://localhost:3000/protected/applications/:id, где id заявки
 токен
+
+--
+Удаление заявки только директором
+DELETE http://localhost:3000/protected/applications/:id, где id заявки
+токен

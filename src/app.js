@@ -2,7 +2,6 @@ const express = require("express");
 const sequelize = require("./config/db");
 const authRoutes = require("./routes/auth");
 const protectedRoutes = require("./routes/protected");
-const Application = require("./models/application");
 
 const app = express();
 app.use(express.json());

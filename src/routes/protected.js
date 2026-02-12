@@ -374,6 +374,74 @@ router.put(
 );
 
 // ───────────────────────────────────────────────
+// УДАЛЕНИЕ заявки — ТОЛЬКО ДЛЯ DIRECTOR
+// DELETE /protected/applications/:id
+// ───────────────────────────────────────────────
+router.delete("/applications/:id", verifyToken, async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const applicationId = parseInt(id, 10);
+    if (isNaN(applicationId)) {
+      return res.status(400).json({ message: "Некорректный ID заявки" });
+    }
+
+    if (req.user.role !== "director") {
+      return res.status(403).json({
+        message: "Доступ запрещён",
+        reason: "Удалять заявки может только пользователь с ролью director",
+      });
+    }
+
+    const application = await Application.findByPk(applicationId);
+
+    if (!application) {
+      return res.status(404).json({ message: "Заявка не найдена" });
+    }
+
+    if (application.files && application.files.length > 0) {
+      const uploadDir = path.join(
+        __dirname,
+        "../../uploads",
+        String(applicationId),
+      );
+
+      try {
+        for (const fileName of application.files) {
+          const filePath = path.join(uploadDir, fileName);
+          if (await fs.pathExists(filePath)) {
+            await fs.remove(filePath);
+          }
+        }
+
+        // Если папка осталась пустой — удаляем её
+        if (await fs.pathExists(uploadDir)) {
+          const remainingFiles = await fs.readdir(uploadDir);
+          if (remainingFiles.length === 0) {
+            await fs.remove(uploadDir);
+          }
+        }
+      } catch (fsErr) {
+        console.error("Ошибка при удалении файлов заявки:", fsErr);
+      }
+    }
+
+    await application.destroy();
+
+    res.json({
+      message: "Заявка успешно удалена",
+      deletedId: applicationId,
+    });
+  } catch (err) {
+    console.error("Ошибка при удалении заявки:", err);
+    res.status(500).json({
+      message: "Ошибка сервера при удалении заявки",
+      error: process.env.NODE_ENV === "development" ? err.message : undefined,
+    });
+  }
+});
+
+// ───────────────────────────────────────────────
 // 1. Получить данные текущего пользователя (о себе)
 // ───────────────────────────────────────────────
 router.get("/me", verifyToken, async (req, res) => {

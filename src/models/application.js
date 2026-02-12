@@ -31,7 +31,7 @@ const Application = sequelize.define(
       allowNull: true,
     },
     files: {
-      type: DataTypes.JSON, // массив путей к файлам, напр. ["file1.pdf", "file2.jpg"]
+      type: DataTypes.JSON,
       defaultValue: [],
     },
     downloadLinks: {
