@@ -6,63 +6,6 @@ const User = require("../models/user");
 require("dotenv").config();
 
 const router = express.Router();
-/*
-router.post("/register", async (req, res) => {
-  const { username, email, password, role } = req.body;
-
-  if (!username || !email || !password || !role) {
-    return res.status(400).json({
-      message: "Все поля обязательны: username, email, password, role",
-    });
-  }
-
-  if (!["accountant", "director", "manager"].includes(role)) {
-    return res.status(400).json({ message: "Недопустимая роль" });
-  }
-
-  try {
-    const existingUser = await User.findOne({
-      where: {
-        [Sequelize.Op.or]: [{ username: username }, { email: email }],
-      },
-    });
-
-    if (existingUser) {
-      if (existingUser.username === username) {
-        return res.status(400).json({ message: "Username уже занят" });
-      }
-      if (existingUser.email === email) {
-        return res.status(400).json({ message: "Email уже зарегистрирован" });
-      }
-      return res.status(400).json({ message: "Пользователь уже существует" });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const user = await User.create({
-      username,
-      email,
-      password: hashedPassword,
-      role,
-    });
-
-    res.status(201).json({
-      message: "Пользователь успешно зарегистрирован",
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        role: user.role,
-      },
-    });
-  } catch (err) {
-    console.error("Ошибка регистрации:", err);
-    res.status(500).json({
-      message: "Ошибка сервера при регистрации",
-      error: err.message,
-    });
-  }
-});*/
 
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
