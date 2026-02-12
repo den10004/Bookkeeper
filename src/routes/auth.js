@@ -31,9 +31,11 @@ router.post("/login", async (req, res) => {
       { expiresIn: "15m" },
     );
 
-    const refreshToken = jwt.sign({ id: user.id }, process.env.REFRESH_SECRET, {
-      expiresIn: "7d",
-    });
+    const refreshToken = jwt.sign(
+      { id: user.id, role: user.role },
+      process.env.REFRESH_SECRET,
+      { expiresIn: "7d" },
+    );
 
     res.json({
       accessToken,
@@ -51,7 +53,7 @@ router.post("/login", async (req, res) => {
   }
 });
 
-router.post("/refresh", (req, res) => {
+router.post("/refresh", async (req, res) => {
   const { refreshToken } = req.body;
   if (!refreshToken) {
     return res.status(400).json({ message: "No refresh token" });
@@ -59,14 +61,24 @@ router.post("/refresh", (req, res) => {
 
   try {
     const decoded = jwt.verify(refreshToken, process.env.REFRESH_SECRET);
+
+    const user = await User.findByPk(decoded.id, {
+      attributes: ["id", "role"],
+    });
+
+    if (!user) {
+      return res.status(401).json({ message: "Пользователь не найден" });
+    }
+
     const accessToken = jwt.sign(
-      { id: decoded.id, role: decoded.role },
+      { id: user.id, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: "15m" },
     );
+
     res.json({ accessToken });
   } catch (err) {
-    res.status(401).json({ message: "Invalid refresh token" });
+    res.status(401).json({ message: "Invalid or expired refresh token" });
   }
 });
 

@@ -3,7 +3,7 @@
 https://github.com/den10004/Bookkeeper.git
 
 {
-"name": "manager2",
+"username": "manager2",
 "email": "manager2@example.com",
 "password": "manager2",
 "role": "manager"
