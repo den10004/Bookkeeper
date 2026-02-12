@@ -10,9 +10,9 @@ app.use(express.json());
 (async () => {
   try {
     await sequelize.sync({ force: false });
-    console.log("Database synced");
+    console.log("БД подключена");
   } catch (err) {
-    console.error("Database sync error:", err);
+    console.error("Ошибка подключения БД:", err);
   }
 })();
 
