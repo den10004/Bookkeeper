@@ -23,9 +23,9 @@ router.post(
     const { username, password, role, email } = req.body;
 
     // Валидация
-    if (!username || !password || !role) {
+    if (!username || !password || !role || !email) {
       return res.status(400).json({
-        message: "Обязательные поля: username, password, role",
+        message: "Обязательные поля: username, password, role, email ",
       });
     }
 
