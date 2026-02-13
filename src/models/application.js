@@ -66,6 +66,8 @@ const Application = sequelize.define(
         model: User,
         key: "id",
       },
+      onDelete: "RESTRICT",
+      onUpdate: "CASCADE",
     },
   },
   {

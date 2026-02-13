@@ -133,9 +133,8 @@ const validateDownload = [
     .isString()
     .withMessage("Имя файла должно быть строкой")
     .custom((value) => {
-      // Запрещаем обход директорий
-      if (value.includes("..") || value.includes("/") || value.includes("\\")) {
-        throw new Error("Некорректное имя файла");
+      if (!/^[a-zA-Z0-9._-]+$/.test(value)) {
+        throw new Error("Имя файла содержит недопустимые символы");
       }
       return true;
     }),
@@ -624,6 +623,12 @@ router.put(
       if (comment !== undefined) updates.comment = comment;
 
       if (assignedAccountantId) {
+        if (req.user.role !== "director") {
+          return res.status(403).json({
+            message: "Только директор может переназначать бухгалтера",
+          });
+        }
+
         const newAccountant = await User.findByPk(assignedAccountantId);
         if (!newAccountant || newAccountant.role !== "accountant") {
           return res

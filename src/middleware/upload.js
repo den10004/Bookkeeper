@@ -6,17 +6,16 @@ const { generateUniqueFilename } = require("../utils/fileUtils");
 
 const storage = multer.diskStorage({
   destination: async (req, file, cb) => {
-    // Создаем временную директорию, если её нет
     const tmpDir = path.join(__dirname, "../tmp");
     await fs.ensureDir(tmpDir);
     cb(null, tmpDir);
   },
   filename: async (req, file, cb) => {
     try {
-      // В временной директории используем просто уникальное имя
-      const uniqueSuffix = crypto.randomBytes(16).toString("hex");
-      const ext = path.extname(file.originalname);
-      const filename = `temp-${Date.now()}-${uniqueSuffix}${ext}`;
+      const filename = await generateUniqueFilename(
+        path.join(__dirname, "../tmp"),
+        file.originalname,
+      );
       cb(null, filename);
     } catch (err) {
       cb(err);
@@ -31,7 +30,6 @@ const upload = multer({
     files: 10, // максимум 10 файлов
   },
   fileFilter: (req, file, cb) => {
-    // Проверяем MIME типы
     const allowedMimes = [
       "image/jpeg",
       "image/png",

@@ -1,5 +1,5 @@
-// ВНИМАНИЕ: нужно изменить способ импорта!
-const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
+const rateLimit = require("express-rate-limit");
+const ipKeyGenerator = rateLimit.ipKeyGenerator;
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 минут
@@ -12,7 +12,7 @@ const loginLimiter = rateLimit({
   keyGenerator: (req) => {
     const email = req.body.email?.toLowerCase().trim();
     if (email) {
-      return email;
+      return `email:${email}`;
     }
     return ipKeyGenerator(req.ip);
   },
