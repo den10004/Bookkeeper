@@ -438,34 +438,64 @@ router.delete("/applications/:id", verifyToken, async (req, res) => {
       return res.status(404).json({ message: "Заявка не найдена" });
     }
 
-    if (application.files && application.files.length > 0) {
+    // ───────────────────────────────────────────────
+    // Удаление файлов (правильная обработка поля files)
+    // ───────────────────────────────────────────────
+    if (
+      application.files &&
+      Array.isArray(application.files) &&
+      application.files.length > 0
+    ) {
       const uploadDir = path.join(
         __dirname,
         "../../uploads",
         String(applicationId),
       );
 
-      try {
-        for (const fileName of application.files) {
-          const filePath = path.join(uploadDir, fileName);
-          if (await fs.pathExists(filePath)) {
-            await fs.remove(filePath);
-          }
+      console.log(`[DELETE] Путь к папке: ${uploadDir}`); // ← для диагностики
+
+      for (const file of application.files) {
+        const storedName = file?.stored;
+
+        if (typeof storedName !== "string" || storedName.trim() === "") {
+          console.warn(
+            `Пропущен некорректный файл в заявке ${applicationId}:`,
+            file,
+          );
+          continue;
         }
 
-        // Если папка осталась пустой — удаляем её
+        const filePath = path.join(uploadDir, storedName);
+
+        try {
+          if (await fs.pathExists(filePath)) {
+            await fs.remove(filePath);
+            console.log(`Удалён файл: ${filePath}`);
+          } else {
+            console.log(`Файл не найден: ${filePath}`);
+          }
+        } catch (unlinkErr) {
+          console.warn(`Не удалось удалить ${filePath}:`, unlinkErr.message);
+        }
+      }
+
+      // Удаление
+      try {
         if (await fs.pathExists(uploadDir)) {
-          const remainingFiles = await fs.readdir(uploadDir);
-          if (remainingFiles.length === 0) {
+          const filesLeft = await fs.readdir(uploadDir);
+          if (filesLeft.length === 0) {
             await fs.remove(uploadDir);
+            console.log(`Удалена пустая папка: ${uploadDir}`);
           }
         }
-      } catch (fsErr) {
-        console.error("Ошибка при удалении файлов заявки:", fsErr);
+      } catch (dirErr) {
+        console.warn(`Не удалось удалить папку ${uploadDir}:`, dirErr.message);
       }
     }
 
-    // Удаляем запись заявки из базы данных
+    // ───────────────────────────────────────────────
+    // Удаляем запись из базы
+    // ───────────────────────────────────────────────
     await application.destroy();
 
     res.json({
