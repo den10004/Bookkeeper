@@ -2,34 +2,7 @@ const multer = require("multer");
 const path = require("path");
 const crypto = require("crypto");
 const fs = require("fs-extra");
-
-// Функция для генерации уникального имени файла
-const generateUniqueFilename = async (uploadDir, originalName, mimetype) => {
-  const ext = path.extname(originalName);
-  const baseName = path.basename(originalName, ext);
-
-  // Санитизируем базовое имя (удаляем опасные символы)
-  const safeBaseName = baseName
-    .replace(/[^a-zA-Z0-9а-яА-ЯёЁ\s\-_]/g, "")
-    .substring(0, 50);
-
-  // Генерируем уникальный суффикс
-  const uniqueSuffix = crypto.randomBytes(16).toString("hex");
-  const timestamp = Date.now();
-
-  let filename = `${safeBaseName}-${timestamp}-${uniqueSuffix}${ext}`;
-  let filepath = path.join(uploadDir, filename);
-
-  // Проверяем, не существует ли уже файл с таким именем
-  let counter = 1;
-  while (await fs.pathExists(filepath)) {
-    filename = `${safeBaseName}-${timestamp}-${uniqueSuffix}-${counter}${ext}`;
-    filepath = path.join(uploadDir, filename);
-    counter++;
-  }
-
-  return filename;
-};
+const { generateUniqueFilename } = require("../utils/fileUtils");
 
 const storage = multer.diskStorage({
   destination: async (req, file, cb) => {
