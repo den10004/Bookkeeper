@@ -1,9 +1,11 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
+const { body, param, validationResult } = require("express-validator");
 const sanitizeFilename = require("sanitize-filename");
 const fs = require("fs-extra");
 const path = require("path");
 const Application = require("../models/application");
+const crypto = require("crypto");
 const verifyToken = require("../middleware/auth");
 const roleMiddleware = require("../middleware/role");
 const User = require("../models/user");
@@ -11,29 +13,244 @@ const upload = require("../middleware/upload");
 
 const router = express.Router();
 
+const generateUniqueFilename = async (uploadDir, originalName, mimetype) => {
+  const ext = path.extname(originalName);
+  const baseName = path.basename(originalName, ext);
+
+  // Санитизируем базовое имя
+  const safeBaseName = baseName
+    .replace(/[^a-zA-Z0-9а-яА-ЯёЁ\s\-_]/g, "")
+    .substring(0, 50);
+
+  // Генерируем уникальный суффикс
+  const uniqueSuffix = crypto.randomBytes(16).toString("hex");
+  const timestamp = Date.now();
+
+  let filename = `${safeBaseName}-${timestamp}-${uniqueSuffix}${ext}`;
+  let filepath = path.join(uploadDir, filename);
+
+  // Проверяем, не существует ли уже файл с таким именем
+  let counter = 1;
+  while (await fs.pathExists(filepath)) {
+    filename = `${safeBaseName}-${timestamp}-${uniqueSuffix}-${counter}${ext}`;
+    filepath = path.join(uploadDir, filename);
+    counter++;
+  }
+
+  return filename;
+};
+
+// Вспомогательная функция для обработки ошибок валидации
+const handleValidationErrors = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      message: "Ошибка валидации",
+      errors: errors.array().map((err) => ({
+        field: err.path,
+        message: err.msg,
+        value: err.value,
+      })),
+    });
+  }
+  next();
+};
+
+// Валидация для ID параметров
+const validateIdParam = [
+  param("id")
+    .notEmpty()
+    .withMessage("ID обязателен")
+    .isInt({ min: 1 })
+    .withMessage("ID должен быть положительным целым числом")
+    .toInt(),
+];
+
+// Валидация для создания пользователя
+const validateUserCreate = [
+  body("username")
+    .trim()
+    .notEmpty()
+    .withMessage("Username обязателен")
+    .isLength({ min: 3, max: 50 })
+    .withMessage("Username должен быть от 3 до 50 символов")
+    .matches(/^[a-zA-Z0-9_]+$/)
+    .withMessage("Username может содержать только буквы, цифры и подчеркивание")
+    .escape(),
+
+  body("email")
+    .trim()
+    .notEmpty()
+    .withMessage("Email обязателен")
+    .isEmail()
+    .withMessage("Некорректный формат email")
+    .normalizeEmail()
+    .isLength({ max: 255 })
+    .withMessage("Email слишком длинный"),
+
+  body("password")
+    .notEmpty()
+    .withMessage("Пароль обязателен")
+    .isLength({ min: 6, max: 100 })
+    .withMessage("Пароль должен быть от 6 до 100 символов")
+    .matches(/^(?=.*[A-Za-z])(?=.*\d)/)
+    .withMessage("Пароль должен содержать хотя бы одну букву и одну цифру"),
+
+  body("role")
+    .notEmpty()
+    .withMessage("Роль обязательна")
+    .isIn(["accountant", "director", "manager"])
+    .withMessage("Недопустимая роль"),
+];
+
+// Валидация для создания заявки
+const validateApplicationCreate = [
+  body("name")
+    .notEmpty()
+    .withMessage("Название обязательно")
+    .isLength({ min: 3, max: 200 })
+    .withMessage("Название должно быть от 3 до 200 символов")
+    .escape(),
+  body("organization")
+    .notEmpty()
+    .withMessage("Организация обязательна")
+    .isLength({ min: 2, max: 100 })
+    .withMessage("Название организации должно быть от 2 до 100 символов")
+    .escape(),
+
+  body("cost")
+    .notEmpty()
+    .withMessage("Стоимость обязательна")
+    .isFloat({ min: 0.01, max: 9999999.99 })
+    .withMessage("Стоимость должна быть от 0.01 до 9,999,999.99")
+    .toFloat(),
+
+  body("quantity")
+    .notEmpty()
+    .withMessage("Количество обязательно")
+    .isInt({ min: 1, max: 999999 })
+    .withMessage("Количество должно быть от 1 до 999,999")
+    .toInt(),
+
+  body("comment")
+    .optional()
+    .isLength({ max: 1000 })
+    .withMessage("Комментарий не должен превышать 1000 символов")
+    .escape(),
+
+  body("assignedAccountantId")
+    .notEmpty()
+    .withMessage("ID бухгалтера обязателен")
+    .isInt({ min: 1 })
+    .withMessage("Некорректный ID бухгалтера")
+    .toInt(),
+];
+
+// Валидация для скачивания файла
+const validateDownload = [
+  param("applicationId")
+    .isInt({ min: 1 })
+    .withMessage("Некорректный ID заявки")
+    .toInt(),
+
+  param("filename")
+    .notEmpty()
+    .withMessage("Имя файла обязательно")
+    .isString()
+    .withMessage("Имя файла должно быть строкой")
+    .custom((value) => {
+      // Запрещаем обход директорий
+      if (value.includes("..") || value.includes("/") || value.includes("\\")) {
+        throw new Error("Некорректное имя файла");
+      }
+      return true;
+    }),
+];
+
+// Валидация для обновления профиля
+const validateProfileUpdate = [
+  param("id")
+    .isInt({ min: 1 })
+    .withMessage("Некорректный ID пользователя")
+    .toInt(),
+
+  body("username")
+    .optional()
+    .trim()
+    .isLength({ min: 3, max: 50 })
+    .withMessage("Username должен быть от 3 до 50 символов")
+    .matches(/^[a-zA-Z0-9_]+$/)
+    .withMessage("Username может содержать только буквы, цифры и подчеркивание")
+    .escape(),
+
+  body("email")
+    .optional()
+    .trim()
+    .isEmail()
+    .withMessage("Некорректный формат email")
+    .normalizeEmail()
+    .isLength({ max: 255 })
+    .withMessage("Email слишком длинный"),
+
+  body("password")
+    .optional()
+    .isLength({ min: 6, max: 100 })
+    .withMessage("Пароль должен быть от 6 до 100 символов")
+    .matches(/^(?=.*[A-Za-z])(?=.*\d)/)
+    .withMessage("Пароль должен содержать хотя бы одну букву и одну цифру"),
+];
+
+// Валидация для обновления пользователя директором
+const validateUserUpdate = [
+  param("id")
+    .isInt({ min: 1 })
+    .withMessage("Некорректный ID пользователя")
+    .toInt(),
+
+  body("username")
+    .optional()
+    .trim()
+    .isLength({ min: 3, max: 50 })
+    .withMessage("Username должен быть от 3 до 50 символов")
+    .matches(/^[a-zA-Z0-9_]+$/)
+    .withMessage("Username может содержать только буквы, цифры и подчеркивание")
+    .escape(),
+
+  body("email")
+    .optional()
+    .trim()
+    .isEmail()
+    .withMessage("Некорректный формат email")
+    .normalizeEmail()
+    .isLength({ max: 255 })
+    .withMessage("Email слишком длинный"),
+
+  body("password")
+    .optional()
+    .isLength({ min: 6, max: 100 })
+    .withMessage("Пароль должен быть от 6 до 100 символов")
+    .matches(/^(?=.*[A-Za-z])(?=.*\d)/)
+    .withMessage("Пароль должен содержать хотя бы одну букву и одну цифру"),
+
+  body("role")
+    .optional()
+    .isIn(["accountant", "director", "manager"])
+    .withMessage("Недопустимая роль"),
+];
+
 // ───────────────────────────────────────────────
-// Регистрация
+// МАРШРУТЫ
 // ───────────────────────────────────────────────
 
+// Регистрация пользователя (только для директора)
 router.post(
   "/users",
   verifyToken,
   roleMiddleware(["director"]),
+  validateUserCreate,
+  handleValidationErrors,
   async (req, res) => {
     const { username, password, role, email } = req.body;
-
-    // Валидация
-    if (!username || !password || !role || !email) {
-      return res.status(400).json({
-        message: "Обязательные поля: username, password, role, email ",
-      });
-    }
-
-    if (!["accountant", "director", "manager"].includes(role)) {
-      return res.status(400).json({
-        message: "Недопустимая роль. Допустимые: accountant, director, manager",
-      });
-    }
 
     try {
       const existingUser = await User.findOne({ where: { username } });
@@ -43,16 +260,22 @@ router.post(
           .json({ message: "Пользователь с таким username уже существует" });
       }
 
+      const existingEmail = await User.findOne({ where: { email } });
+      if (existingEmail) {
+        return res
+          .status(409)
+          .json({ message: "Пользователь с таким email уже существует" });
+      }
+
       const hashedPassword = await bcrypt.hash(password, 10);
 
       const newUser = await User.create({
         username,
         password: hashedPassword,
         role,
-        email: email || null, // если добавите поле email в модель
+        email,
       });
 
-      // Не возвращаем пароль!
       const userData = {
         id: newUser.id,
         username: newUser.username,
@@ -69,21 +292,27 @@ router.post(
       console.error("Ошибка создания пользователя:", err);
       res.status(500).json({
         message: "Ошибка сервера при создании пользователя",
-        error: process.env.NODE_ENV === "development" ? err.message : undefined,
       });
     }
   },
 );
 
-// ───────────────────────────────────────────────
-// 1. Заявки
-// ───────────────────────────────────────────────
+// Создание заявки (только для менеджера)
 router.post(
   "/applications",
   verifyToken,
   roleMiddleware(["manager"]),
+
+  // 1. Сначала загружаем файлы (multer парсит form-data)
   upload.array("files", 10),
+
+  // 2. Потом очистка временных файлов
   require("../middleware/cleanupTmp"),
+
+  // 3. Только потом валидация (req.body уже заполнен)
+  validateApplicationCreate,
+  handleValidationErrors,
+
   async (req, res) => {
     const {
       name,
@@ -94,14 +323,10 @@ router.post(
       assignedAccountantId,
     } = req.body;
 
-    if (!name || !organization || !cost || !quantity || !assignedAccountantId) {
-      return res.status(400).json({
-        message:
-          "Обязательные поля: name, organization, cost, quantity, assignedAccountantId",
-      });
-    }
+    let application = null;
 
     try {
+      // Проверяем существование бухгалтера
       const accountant = await User.findByPk(assignedAccountantId);
       if (!accountant || accountant.role !== "accountant") {
         return res.status(400).json({
@@ -110,7 +335,8 @@ router.post(
         });
       }
 
-      const application = await Application.create({
+      // Создаем заявку
+      application = await Application.create({
         name,
         organization,
         cost: parseFloat(cost),
@@ -120,6 +346,7 @@ router.post(
         assignedAccountantId: parseInt(assignedAccountantId, 10),
       });
 
+      // Обработка файлов
       const uploadDir = path.join(
         __dirname,
         "../../uploads",
@@ -131,21 +358,38 @@ router.post(
 
       if (req.files?.length > 0) {
         for (const file of req.files) {
-          const storedName = file.filename;
+          const uniqueFilename = await generateUniqueFilename(
+            uploadDir,
+            file.originalname,
+            file.mimetype,
+          );
+
           const originalName = sanitizeFilename(file.originalname);
-          const newPath = path.join(uploadDir, storedName);
-          const exists = await fs.pathExists(newPath);
-          if (exists) {
-            throw new Error(`Файл ${storedName} уже существует в директории`);
+          const newPath = path.join(uploadDir, uniqueFilename);
+
+          // Проверка на обход директорий
+          if (
+            path.normalize(newPath).indexOf(path.normalize(uploadDir)) !== 0
+          ) {
+            throw new Error("Попытка обхода директорий");
           }
 
-          await fs.move(file.path, newPath); // Без overwrite: true
-          savedFiles.push({ stored: storedName, original: originalName });
+          await fs.move(file.path, newPath, { overwrite: false });
+
+          savedFiles.push({
+            stored: uniqueFilename,
+            original: originalName,
+            size: file.size,
+            mimetype: file.mimetype,
+            uploadedAt: new Date().toISOString(),
+          });
         }
       }
 
-      await application.update({ files: savedFiles });
-      await application.reload();
+      if (savedFiles.length > 0) {
+        await application.update({ files: savedFiles });
+        await application.reload();
+      }
 
       res.status(201).json({
         message: "Заявка успешно создана",
@@ -157,17 +401,26 @@ router.post(
           quantity: application.quantity,
           comment: application.comment,
           assignedAccountantId: application.assignedAccountantId,
-          files: application.downloadLinks,
+          files: application.downloadLinks || [],
           createdAt: application.createdAt.toISOString(),
         },
       });
     } catch (err) {
       console.error("Ошибка создания заявки:", err);
-      res.status(500).json({ message: "Ошибка сервера при создании заявки" });
+
+      if (application) {
+        await application.destroy().catch(console.error);
+      }
+
+      res.status(500).json({
+        message: "Ошибка сервера при создании заявки",
+        error: process.env.NODE_ENV === "development" ? err.message : undefined,
+      });
     }
   },
 );
 
+// Получение списка заявок
 router.get("/applications", verifyToken, async (req, res) => {
   try {
     let applications;
@@ -236,40 +489,56 @@ router.get("/applications", verifyToken, async (req, res) => {
   }
 });
 
-router.get("/applications/:id", verifyToken, async (req, res) => {
-  try {
-    const application = await Application.findByPk(req.params.id, {
-      include: [
-        { model: User, as: "Creator", attributes: ["id", "username", "email"] },
-        {
-          model: User,
-          as: "AssignedAccountant",
-          attributes: ["id", "username", "email"],
-        },
-      ],
-    });
+// Получение конкретной заявки
+router.get(
+  "/applications/:id",
+  verifyToken,
+  validateIdParam,
+  handleValidationErrors,
+  async (req, res) => {
+    try {
+      const application = await Application.findByPk(req.params.id, {
+        include: [
+          {
+            model: User,
+            as: "Creator",
+            attributes: ["id", "username", "email"],
+          },
+          {
+            model: User,
+            as: "AssignedAccountant",
+            attributes: ["id", "username", "email"],
+          },
+        ],
+      });
 
-    if (!application) {
-      return res.status(404).json({ message: "Заявка не найдена" });
+      if (!application) {
+        return res.status(404).json({ message: "Заявка не найдена" });
+      }
+
+      const canView =
+        req.user.role === "director" ||
+        application.userId === req.user.id ||
+        application.assignedAccountantId === req.user.id;
+
+      if (!canView) {
+        return res.status(403).json({ message: "Нет доступа к этой заявке" });
+      }
+
+      res.json(application);
+    } catch (err) {
+      console.error("Ошибка получения заявки:", err);
+      res.status(500).json({ message: "Ошибка сервера" });
     }
+  },
+);
 
-    const canView =
-      req.user.role === "director" ||
-      application.userId === req.user.id ||
-      application.assignedAccountantId === req.user.id;
-
-    if (!canView) {
-      return res.status(403).json({ message: "Нет доступа к этой заявке" });
-    }
-
-    res.json(application);
-  } catch (err) {
-    res.status(500).json({ message: "Ошибка сервера" });
-  }
-});
+// Скачивание файла
 router.get(
   "/download/:applicationId/:filename",
   verifyToken,
+  validateDownload,
+  handleValidationErrors,
   async (req, res) => {
     const { applicationId, filename } = req.params;
 
@@ -279,9 +548,12 @@ router.get(
         return res.status(404).json({ message: "Заявка не найдена" });
       }
 
-      if (!application.files.includes(filename)) {
+      // Проверяем, что файл действительно принадлежит заявке
+      const fileExists = application.files.some((f) => f.stored === filename);
+      if (!fileExists) {
         return res.status(404).json({ message: "Файл не найден в заявке" });
       }
+
       const canAccess =
         req.user.role === "director" ||
         application.userId === req.user.id ||
@@ -290,23 +562,39 @@ router.get(
       if (!canAccess) {
         return res.status(403).json({ message: "Нет доступа к файлу" });
       }
+
       const filePath = path.join(
         __dirname,
         "../../uploads",
-        applicationId,
+        String(applicationId),
         filename,
       );
 
-      if (!fs.existsSync(filePath)) {
+      // Дополнительная проверка безопасности
+      const normalizedPath = path.normalize(filePath);
+      const uploadsDir = path.normalize(path.join(__dirname, "../../uploads"));
+      if (!normalizedPath.startsWith(uploadsDir)) {
+        return res.status(403).json({ message: "Доступ запрещен" });
+      }
+
+      if (!(await fs.pathExists(filePath))) {
         return res
           .status(404)
           .json({ message: "Файл физически не найден на сервере" });
       }
 
-      res.download(filePath, filename, (err) => {
+      // Находим оригинальное имя файла для скачивания
+      const fileInfo = application.files.find((f) => f.stored === filename);
+      const downloadName = fileInfo
+        ? fileInfo.original
+        : sanitizeFilename(filename);
+
+      res.download(filePath, downloadName, (err) => {
         if (err) {
           console.error("Ошибка отправки файла:", err);
-          res.status(500).json({ message: "Ошибка при скачивании файла" });
+          if (!res.headersSent) {
+            res.status(500).json({ message: "Ошибка при скачивании файла" });
+          }
         }
       });
     } catch (err) {
@@ -316,10 +604,13 @@ router.get(
   },
 );
 
+// Обновление заявки
 router.put(
   "/applications/:id",
   verifyToken,
-  upload.array("files", 10), // позволяет добавлять новые файлы
+  validateIdParam,
+  handleValidationErrors,
+  upload.array("files", 10),
   require("../middleware/cleanupTmp"),
   async (req, res) => {
     const { id } = req.params;
@@ -340,9 +631,9 @@ router.put(
 
       // Проверка прав доступа
       const canEdit =
-        req.user.role === "director" || // директор может всё
-        application.assignedAccountantId === req.user.id || // назначенный бухгалтер
-        (req.user.role === "manager" && application.userId === req.user.id); // создатель (опционально)
+        req.user.role === "director" ||
+        application.assignedAccountantId === req.user.id ||
+        (req.user.role === "manager" && application.userId === req.user.id);
 
       if (!canEdit) {
         return res
@@ -350,15 +641,15 @@ router.put(
           .json({ message: "Нет прав на редактирование этой заявки" });
       }
 
-      // Формируем обновления полей (только если переданы)
+      // Формируем обновления полей
       const updates = {};
       if (name) updates.name = name;
       if (organization) updates.organization = organization;
       if (cost) updates.cost = parseFloat(cost);
       if (quantity) updates.quantity = parseInt(quantity, 10);
-      if (comment) updates.comment = comment;
+      if (comment !== undefined) updates.comment = comment;
+
       if (assignedAccountantId) {
-        // Проверка нового бухгалтера
         const newAccountant = await User.findByPk(assignedAccountantId);
         if (!newAccountant || newAccountant.role !== "accountant") {
           return res
@@ -368,129 +659,128 @@ router.put(
         updates.assignedAccountantId = parseInt(assignedAccountantId, 10);
       }
 
-      // Добавляем новые файлы (расширяем существующий массив)
+      // Обрабатываем новые файлы
       const existingFiles = application.files || [];
       const newFiles = [];
+
       if (req.files?.length > 0) {
         const uploadDir = path.join(__dirname, "../../uploads", String(id));
         await fs.ensureDir(uploadDir);
 
         for (const file of req.files) {
-          const originalName = file.originalname;
-          const newPath = path.join(uploadDir, originalName);
-          await fs.move(file.path, newPath, { overwrite: true });
-          newFiles.push(originalName);
+          // Генерируем уникальное имя для нового файла
+          const uniqueFilename = await generateUniqueFilename(
+            uploadDir,
+            file.originalname,
+            file.mimetype,
+          );
+
+          const originalName = sanitizeFilename(file.originalname);
+          const newPath = path.join(uploadDir, uniqueFilename);
+
+          await fs.move(file.path, newPath, { overwrite: false });
+
+          newFiles.push({
+            stored: uniqueFilename,
+            original: originalName,
+            size: file.size,
+            mimetype: file.mimetype,
+            addedAt: new Date().toISOString(),
+          });
         }
       }
 
-      // Обновляем заявку
+      // Объединяем существующие и новые файлы
       updates.files = [...existingFiles, ...newFiles];
+
+      // Обновляем заявку
       await application.update(updates);
 
-      // Формируем ссылки для всех файлов
-      const allFiles = application.files;
-      const downloadLinks = allFiles.map(
-        (file) =>
-          `/protected/download/${application.id}/${encodeURIComponent(file)}`,
-      );
+      // Получаем обновленную заявку
+      const updatedApplication = await Application.findByPk(id, {
+        include: [
+          {
+            model: User,
+            as: "Creator",
+            attributes: ["id", "username", "email"],
+          },
+          {
+            model: User,
+            as: "AssignedAccountant",
+            attributes: ["id", "username", "email"],
+          },
+        ],
+      });
 
       res.json({
         message: "Заявка обновлена",
-        application: {
-          id: application.id,
-          name: application.name,
-          organization: application.organization,
-          cost: application.cost,
-          quantity: application.quantity,
-          comment: application.comment,
-          assignedAccountantId: application.assignedAccountantId,
-          files: downloadLinks,
-          updatedAt: application.updatedAt,
-        },
+        application: updatedApplication,
       });
     } catch (err) {
       console.error("Ошибка редактирования заявки:", err);
-      res.status(500).json({ message: "Ошибка сервера" });
+      res.status(500).json({
+        message: "Ошибка сервера",
+        error: process.env.NODE_ENV === "development" ? err.message : undefined,
+      });
     }
   },
 );
 
-// ───────────────────────────────────────────────
-// УДАЛЕНИЕ заявки — ТОЛЬКО ДЛЯ DIRECTOR
-// DELETE /protected/applications/:id
-// ───────────────────────────────────────────────
-router.delete("/applications/:id", verifyToken, async (req, res) => {
-  const { id } = req.params;
+// Удаление заявки (только для директора)
+router.delete(
+  "/applications/:id",
+  verifyToken,
+  validateIdParam,
+  handleValidationErrors,
+  async (req, res) => {
+    const { id } = req.params;
 
-  try {
-    const applicationId = parseInt(id, 10);
-    if (isNaN(applicationId)) {
-      return res.status(400).json({ message: "Некорректный ID заявки" });
-    }
+    try {
+      if (req.user.role !== "director") {
+        return res.status(403).json({
+          message: "Доступ запрещён",
+          reason: "Удалять заявки может только пользователь с ролью director",
+        });
+      }
 
-    if (req.user.role !== "director") {
-      return res.status(403).json({
-        message: "Доступ запрещён",
-        reason: "Удалять заявки может только пользователь с ролью director",
+      const application = await Application.findByPk(id);
+
+      if (!application) {
+        return res.status(404).json({ message: "Заявка не найдена" });
+      }
+
+      // Удаляем файлы
+      if (application.files && application.files.length > 0) {
+        const uploadDir = path.join(__dirname, "../../uploads", String(id));
+
+        try {
+          await fs.remove(uploadDir);
+        } catch (fsErr) {
+          console.error("Ошибка при удалении файлов заявки:", fsErr);
+        }
+      }
+
+      // Удаляем запись заявки из базы данных
+      await application.destroy();
+
+      res.json({
+        message: "Заявка успешно удалена",
+        deletedId: id,
+      });
+    } catch (err) {
+      console.error("Ошибка при удалении заявки:", err);
+      res.status(500).json({
+        message: "Ошибка сервера при удалении заявки",
       });
     }
+  },
+);
 
-    const application = await Application.findByPk(applicationId);
-
-    if (!application) {
-      return res.status(404).json({ message: "Заявка не найдена" });
-    }
-
-    if (application.files && application.files.length > 0) {
-      const uploadDir = path.join(
-        __dirname,
-        "../../uploads",
-        String(applicationId),
-      );
-
-      try {
-        for (const fileName of application.files) {
-          const filePath = path.join(uploadDir, fileName);
-          if (await fs.pathExists(filePath)) {
-            await fs.remove(filePath);
-          }
-        }
-
-        // Если папка осталась пустой — удаляем её
-        if (await fs.pathExists(uploadDir)) {
-          const remainingFiles = await fs.readdir(uploadDir);
-          if (remainingFiles.length === 0) {
-            await fs.remove(uploadDir);
-          }
-        }
-      } catch (fsErr) {
-        console.error("Ошибка при удалении файлов заявки:", fsErr);
-      }
-    }
-
-    // Удаляем запись заявки из базы данных
-    await application.destroy();
-
-    res.json({
-      message: "Заявка успешно удалена",
-      deletedId: applicationId,
-    });
-  } catch (err) {
-    console.error("Ошибка при удалении заявки:", err);
-    res.status(500).json({
-      message: "Ошибка сервера при удалении заявки",
-      error: process.env.NODE_ENV === "development" ? err.message : undefined,
-    });
-  }
-});
-
-// ───────────────────────────────────────────────
-// 1. Получить данные текущего пользователя (о себе)
-// ───────────────────────────────────────────────
+// Получить данные текущего пользователя
 router.get("/me", verifyToken, async (req, res) => {
   try {
     const user = await User.findByPk(req.user.id, {
-      attributes: { exclude: ["password"] }, // не отдаём пароль
+      attributes: { exclude: ["password"] },
     });
 
     if (!user) {
@@ -504,70 +794,74 @@ router.get("/me", verifyToken, async (req, res) => {
   }
 });
 
-// ───────────────────────────────────────────────
-// 2. Обновление своего профиля (доступно всем авторизованным)
-// ───────────────────────────────────────────────
-router.put("/update/:id", verifyToken, async (req, res) => {
-  const { id } = req.params;
+// Обновление своего профиля
+router.put(
+  "/update/:id",
+  verifyToken,
+  validateProfileUpdate,
+  handleValidationErrors,
+  async (req, res) => {
+    const { id } = req.params;
 
-  if (parseInt(id) !== req.user.id) {
-    return res
-      .status(403)
-      .json({ message: "Можно обновлять только свой профиль" });
-  }
-
-  const { username, email, password, role } = req.body;
-  const updates = {};
-
-  if (username) updates.username = username;
-  if (email) updates.email = email;
-  if (password) updates.password = await bcrypt.hash(password, 10);
-  // role обычно не дают менять самому себе — убираем или оставляем под контролем
-  // if (role && ['accountant', 'director', 'manager'].includes(role)) updates.role = role;
-
-  try {
-    const [updated] = await User.update(updates, { where: { id } });
-    if (!updated) {
+    if (parseInt(id) !== req.user.id) {
       return res
-        .status(404)
-        .json({ message: "Пользователь не найден или ничего не изменилось" });
+        .status(403)
+        .json({ message: "Можно обновлять только свой профиль" });
     }
 
-    res.json({ message: "Профиль обновлён" });
-  } catch (err) {
-    console.error("Ошибка обновления профиля:", err);
-    res.status(500).json({ message: "Ошибка сервера" });
-  }
-});
+    const { username, email, password } = req.body;
+    const updates = {};
 
-// ───────────────────────────────────────────────
-// 3. Удаление своего профиля
-// ───────────────────────────────────────────────
-router.delete("/delete/:id", verifyToken, async (req, res) => {
-  const { id } = req.params;
+    if (username) updates.username = username;
+    if (email) updates.email = email;
+    if (password) updates.password = await bcrypt.hash(password, 10);
 
-  if (parseInt(id) !== req.user.id) {
-    return res
-      .status(403)
-      .json({ message: "Можно удалить только свой аккаунт" });
-  }
+    try {
+      const [updated] = await User.update(updates, { where: { id } });
+      if (!updated) {
+        return res
+          .status(404)
+          .json({ message: "Пользователь не найден или ничего не изменилось" });
+      }
 
-  try {
-    const deleted = await User.destroy({ where: { id } });
-    if (!deleted) {
-      return res.status(404).json({ message: "Пользователь не найден" });
+      res.json({ message: "Профиль обновлён" });
+    } catch (err) {
+      console.error("Ошибка обновления профиля:", err);
+      res.status(500).json({ message: "Ошибка сервера" });
+    }
+  },
+);
+
+// Удаление своего профиля
+router.delete(
+  "/delete/:id",
+  verifyToken,
+  validateIdParam,
+  handleValidationErrors,
+  async (req, res) => {
+    const { id } = req.params;
+
+    if (parseInt(id) !== req.user.id) {
+      return res
+        .status(403)
+        .json({ message: "Можно удалить только свой аккаунт" });
     }
 
-    res.json({ message: "Аккаунт удалён" });
-  } catch (err) {
-    console.error("Ошибка удаления аккаунта:", err);
-    res.status(500).json({ message: "Ошибка сервера" });
-  }
-});
+    try {
+      const deleted = await User.destroy({ where: { id } });
+      if (!deleted) {
+        return res.status(404).json({ message: "Пользователь не найден" });
+      }
 
-// ───────────────────────────────────────────────
-// 4. Список всех пользователей — ТОЛЬКО ДЛЯ DIRECTOR
-// ───────────────────────────────────────────────
+      res.json({ message: "Аккаунт удалён" });
+    } catch (err) {
+      console.error("Ошибка удаления аккаунта:", err);
+      res.status(500).json({ message: "Ошибка сервера" });
+    }
+  },
+);
+
+// Список всех пользователей (только для директора)
 router.get(
   "/users",
   verifyToken,
@@ -592,13 +886,13 @@ router.get(
   },
 );
 
-// ───────────────────────────────────────────────
-// 5. Обновление любого пользователя — ТОЛЬКО ДЛЯ DIRECTOR
-// ───────────────────────────────────────────────
+// Обновление любого пользователя (только для директора)
 router.put(
   "/users/:id",
   verifyToken,
   roleMiddleware(["director"]),
+  validateUserUpdate,
+  handleValidationErrors,
   async (req, res) => {
     const { id } = req.params;
 
@@ -614,9 +908,7 @@ router.put(
     if (username) updates.username = username;
     if (email) updates.email = email;
     if (password) updates.password = await bcrypt.hash(password, 10);
-    if (role && ["accountant", "director", "manager"].includes(role)) {
-      updates.role = role;
-    }
+    if (role) updates.role = role;
 
     try {
       const [updated] = await User.update(updates, { where: { id } });
@@ -632,13 +924,13 @@ router.put(
   },
 );
 
-// ───────────────────────────────────────────────
-// 6. Удаление любого пользователя — ТОЛЬКО ДЛЯ DIRECTOR
-// ───────────────────────────────────────────────
+// Удаление любого пользователя (только для директора)
 router.delete(
   "/users/:id",
   verifyToken,
   roleMiddleware(["director"]),
+  validateIdParam,
+  handleValidationErrors,
   async (req, res) => {
     const { id } = req.params;
 
@@ -662,6 +954,7 @@ router.delete(
   },
 );
 
+// Тестовый маршрут для директора
 router.get(
   "/director-only",
   verifyToken,
