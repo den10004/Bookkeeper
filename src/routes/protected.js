@@ -129,20 +129,17 @@ router.post(
 
       if (req.files?.length > 0) {
         for (const file of req.files) {
+          const storedName = file.filename;
           const originalName = file.originalname;
-          const newPath = path.join(uploadDir, originalName);
+          const newPath = path.join(uploadDir, storedName);
 
           await fs.move(file.path, newPath, { overwrite: true });
-          savedFiles.push(originalName);
+          savedFiles.push({ stored: storedName, original: originalName });
         }
       }
 
       await application.update({ files: savedFiles });
-
-      const downloadLinks = savedFiles.map(
-        (file) =>
-          `/protected/download/${application.id}/${encodeURIComponent(file)}`,
-      );
+      await application.reload();
 
       res.status(201).json({
         message: "Заявка успешно создана",
@@ -154,7 +151,7 @@ router.post(
           quantity: application.quantity,
           comment: application.comment,
           assignedAccountantId: application.assignedAccountantId,
-          files: downloadLinks,
+          files: application.downloadLinks,
           createdAt: application.createdAt.toISOString(),
         },
       });
