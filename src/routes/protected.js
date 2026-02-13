@@ -1,12 +1,14 @@
 const express = require("express");
-const verifyToken = require("../middleware/auth");
-const roleMiddleware = require("../middleware/role");
-const User = require("../models/user");
+const bcrypt = require("bcryptjs");
+const sanitizeFilename = require("sanitize-filename");
 const fs = require("fs-extra");
 const path = require("path");
 const Application = require("../models/application");
-const bcrypt = require("bcryptjs");
+const verifyToken = require("../middleware/auth");
+const roleMiddleware = require("../middleware/role");
+const User = require("../models/user");
 const upload = require("../middleware/upload");
+
 const router = express.Router();
 
 // ───────────────────────────────────────────────
@@ -130,10 +132,14 @@ router.post(
       if (req.files?.length > 0) {
         for (const file of req.files) {
           const storedName = file.filename;
-          const originalName = file.originalname;
+          const originalName = sanitizeFilename(file.originalname);
           const newPath = path.join(uploadDir, storedName);
+          const exists = await fs.pathExists(newPath);
+          if (exists) {
+            throw new Error(`Файл ${storedName} уже существует в директории`);
+          }
 
-          await fs.move(file.path, newPath, { overwrite: true });
+          await fs.move(file.path, newPath); // Без overwrite: true
           savedFiles.push({ stored: storedName, original: originalName });
         }
       }
@@ -156,11 +162,8 @@ router.post(
         },
       });
     } catch (err) {
-      console.error("Ошибка при создании заявки:", err);
-      res.status(500).json({
-        message: "Ошибка сервера при создании заявки",
-        error: process.env.NODE_ENV === "development" ? err.message : undefined,
-      });
+      console.error("Ошибка создания заявки:", err);
+      res.status(500).json({ message: "Ошибка сервера при создании заявки" });
     }
   },
 );
@@ -438,64 +441,34 @@ router.delete("/applications/:id", verifyToken, async (req, res) => {
       return res.status(404).json({ message: "Заявка не найдена" });
     }
 
-    // ───────────────────────────────────────────────
-    // Удаление файлов (правильная обработка поля files)
-    // ───────────────────────────────────────────────
-    if (
-      application.files &&
-      Array.isArray(application.files) &&
-      application.files.length > 0
-    ) {
+    if (application.files && application.files.length > 0) {
       const uploadDir = path.join(
         __dirname,
         "../../uploads",
         String(applicationId),
       );
 
-      console.log(`[DELETE] Путь к папке: ${uploadDir}`); // ← для диагностики
-
-      for (const file of application.files) {
-        const storedName = file?.stored;
-
-        if (typeof storedName !== "string" || storedName.trim() === "") {
-          console.warn(
-            `Пропущен некорректный файл в заявке ${applicationId}:`,
-            file,
-          );
-          continue;
-        }
-
-        const filePath = path.join(uploadDir, storedName);
-
-        try {
+      try {
+        for (const fileName of application.files) {
+          const filePath = path.join(uploadDir, fileName);
           if (await fs.pathExists(filePath)) {
             await fs.remove(filePath);
-            console.log(`Удалён файл: ${filePath}`);
-          } else {
-            console.log(`Файл не найден: ${filePath}`);
           }
-        } catch (unlinkErr) {
-          console.warn(`Не удалось удалить ${filePath}:`, unlinkErr.message);
         }
-      }
 
-      // Удаление
-      try {
+        // Если папка осталась пустой — удаляем её
         if (await fs.pathExists(uploadDir)) {
-          const filesLeft = await fs.readdir(uploadDir);
-          if (filesLeft.length === 0) {
+          const remainingFiles = await fs.readdir(uploadDir);
+          if (remainingFiles.length === 0) {
             await fs.remove(uploadDir);
-            console.log(`Удалена пустая папка: ${uploadDir}`);
           }
         }
-      } catch (dirErr) {
-        console.warn(`Не удалось удалить папку ${uploadDir}:`, dirErr.message);
+      } catch (fsErr) {
+        console.error("Ошибка при удалении файлов заявки:", fsErr);
       }
     }
 
-    // ───────────────────────────────────────────────
-    // Удаляем запись из базы
-    // ───────────────────────────────────────────────
+    // Удаляем запись заявки из базы данных
     await application.destroy();
 
     res.json({
