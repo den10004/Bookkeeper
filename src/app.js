@@ -45,22 +45,21 @@ app.use(
     crossOriginResourcePolicy: { policy: "same-origin" },
   }),
 );
-// 2. CORS — строго ограничиваем источники
+
 app.use(
   cors({
     origin: [
-      "http://localhost:3000", // dev
+      "http://localhost:5173", // dev
       "https://your-frontend-domain.com", // production
     ],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
-    credentials: true, // если используете cookies или auth с credentials
+    credentials: true,
     optionsSuccessStatus: 204,
-    maxAge: 86400, // кэшируем preflight-запросы на сутки
+    maxAge: 86400,
   }),
 );
 
-// 3. Глобальный rate-limit — базовая защита от DDoS/спама/абьюза
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 минут
   max: 150, // ~150 запросов с одного IP (настройте под нагрузку)
