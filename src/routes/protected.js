@@ -14,7 +14,6 @@ const { generateUniqueFilename } = require("../utils/fileUtils");
 
 const router = express.Router();
 
-// Вспомогательная функция для обработки ошибок валидации
 const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -30,7 +29,6 @@ const handleValidationErrors = (req, res, next) => {
   next();
 };
 
-// Валидация для ID параметров
 const validateIdParam = [
   param("id")
     .notEmpty()
@@ -40,7 +38,6 @@ const validateIdParam = [
     .toInt(),
 ];
 
-// Валидация для создания пользователя
 const validateUserCreate = [
   body("username")
     .trim()
@@ -77,7 +74,6 @@ const validateUserCreate = [
     .withMessage("Недопустимая роль"),
 ];
 
-// Валидация для создания заявки
 const validateApplicationCreate = [
   body("name")
     .notEmpty()
@@ -120,7 +116,6 @@ const validateApplicationCreate = [
     .toInt(),
 ];
 
-// Валидация для скачивания файла
 const validateDownload = [
   param("applicationId")
     .isInt({ min: 1 })
@@ -133,14 +128,13 @@ const validateDownload = [
     .isString()
     .withMessage("Имя файла должно быть строкой")
     .custom((value) => {
-      if (!/^[a-zA-Z0-9._-]+$/.test(value)) {
+      if (!/^[a-zA-Z0-9а-яА-ЯёЁ\s._-]+$/.test(value)) {
         throw new Error("Имя файла содержит недопустимые символы");
       }
       return true;
     }),
 ];
 
-// Валидация для обновления профиля
 const validateProfileUpdate = [
   param("id")
     .isInt({ min: 1 })
@@ -173,7 +167,6 @@ const validateProfileUpdate = [
     .withMessage("Пароль должен содержать хотя бы одну букву и одну цифру"),
 ];
 
-// Валидация для обновления пользователя директором
 const validateUserUpdate = [
   param("id")
     .isInt({ min: 1 })

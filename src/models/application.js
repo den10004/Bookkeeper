@@ -49,24 +49,23 @@ const Application = sequelize.define(
       },
     },
 
-    // Правильное определение двух отдельных полей
     userId: {
       type: DataTypes.INTEGER,
       allowNull: false,
       references: {
-        model: User, // или "Users" — зависит от того, как таблица называется
+        model: User,
         key: "id",
       },
     },
 
     assignedAccountantId: {
       type: DataTypes.INTEGER,
-      allowNull: false, // или true, если бухгалтер может быть не назначен сразу
+      allowNull: true,
       references: {
         model: User,
         key: "id",
       },
-      onDelete: "RESTRICT",
+      onDelete: "SET NULL",
       onUpdate: "CASCADE",
     },
   },

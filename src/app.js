@@ -6,7 +6,6 @@ const protectedRoutes = require("./routes/protected");
 const helmet = require("helmet");
 const cors = require("cors");
 const rateLimit = require("express-rate-limit");
-const xss = require("xss-clean");
 
 const app = express();
 
@@ -14,28 +13,29 @@ const app = express();
 // SECURITY MIDDLEWARES
 // ───────────────────────────────────────────────
 
-// 1. Helmet — устанавливает ключевые security headers (CSP, HSTS, X-Frame-Options и др.)
 app.use(
   helmet({
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"], // часто нужно для inline-стилей
-        imgSrc: ["'self'", "data:"],
-        connectSrc: ["'self'"],
-        fontSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // под ваш фронтенд
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:", "https:"],
+        connectSrc: ["'self'", "https:"],
+        fontSrc: ["'self'", "data:"],
         objectSrc: ["'none'"],
         mediaSrc: ["'self'"],
-        frameAncestors: ["'none'"], // защита от clickjacking
+        frameAncestors: ["'none'"],
         formAction: ["'self'"],
-        upgradeInsecureRequests: [], // можно включить [] или ['https:']
+        upgradeInsecureRequests:
+          process.env.NODE_ENV === "production" ? ["https"] : [],
       },
     },
-
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
     hsts:
       process.env.NODE_ENV === "production"
         ? {
-            maxAge: 31536000, // 1 год
+            maxAge: 31536000,
             includeSubDomains: true,
             preload: true,
           }
@@ -45,7 +45,6 @@ app.use(
     crossOriginResourcePolicy: { policy: "same-origin" },
   }),
 );
-
 // 2. CORS — строго ограничиваем источники
 app.use(
   cors({
@@ -71,11 +70,14 @@ const globalLimiter = rateLimit({
 });
 app.use(globalLimiter);
 
-// 4. Защита от XSS в теле запроса (JSON, form-data и т.д.)
-//app.use(xss());
-
 // 5. Доверяем прокси (nginx, Cloudflare и т.д.) — важно для rate-limit по IP и логирования
 app.set("trust proxy", 1); // 1 = доверяем первому прокси, или "loopback" / число прокси
+
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  next();
+});
 
 // ───────────────────────────────────────────────
 // Парсинг тела (после security middlewares)

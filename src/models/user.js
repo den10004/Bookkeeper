@@ -30,6 +30,11 @@ const User = sequelize.define(
       type: DataTypes.ENUM("accountant", "director", "manager"),
       allowNull: false,
     },
+    refreshTokenHash: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+      defaultValue: null,
+    },
   },
   {
     timestamps: true,
