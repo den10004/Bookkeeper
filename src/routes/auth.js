@@ -43,13 +43,19 @@ router.post("/login", loginLimiter, async (req, res) => {
       { expiresIn: "7d" },
     );
 
-    // Сохраняем хэш свежевыданного refresh-токена
     const refreshHash = hashRefreshToken(refreshToken);
     await user.update({ refreshTokenHash: refreshHash });
 
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: "/",
+    });
+
     res.json({
       accessToken,
-      refreshToken,
       user: {
         id: user.id,
         username: user.username,
@@ -64,17 +70,15 @@ router.post("/login", loginLimiter, async (req, res) => {
 });
 
 router.post("/refresh", async (req, res) => {
-  const { refreshToken } = req.body;
+  const refreshToken = req.cookies.refreshToken;
 
   if (!refreshToken) {
-    return res.status(400).json({ message: "Refresh-токен не передан" });
+    return res.status(401).json({ message: "Refresh-токен не передан" });
   }
 
   try {
-    // 1. Проверяем подпись и срок действия токена
     const decoded = jwt.verify(refreshToken, process.env.REFRESH_SECRET);
 
-    // 2. Ищем пользователя
     const user = await User.findByPk(decoded.id, {
       attributes: ["id", "role", "refreshTokenHash"],
     });
@@ -83,18 +87,20 @@ router.post("/refresh", async (req, res) => {
       return res.status(401).json({ message: "Пользователь не найден" });
     }
 
-    // 3. Проверяем, совпадает ли хэш переданного токена с сохранённым
     const incomingHash = hashRefreshToken(refreshToken);
     if (user.refreshTokenHash !== incomingHash) {
-      // Токен не совпадает → возможно, это старый/украденный токен
-      // Можно здесь же обнулить refreshTokenHash для параноидального режима
       await user.update({ refreshTokenHash: null });
       return res.status(401).json({
         message: "Недействительный refresh-токен (возможно, уже использован)",
       });
     }
+    res.cookie("refreshToken", newRefreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
 
-    // 4. Генерируем новую пару токенов (rotation)
     const newAccessToken = jwt.sign(
       { id: user.id, role: user.role },
       process.env.JWT_SECRET,
@@ -107,17 +113,14 @@ router.post("/refresh", async (req, res) => {
       { expiresIn: "7d" },
     );
 
-    // 5. Сохраняем хэш нового refresh-токена → старый становится недействительным
     const newHash = hashRefreshToken(newRefreshToken);
     await user.update({ refreshTokenHash: newHash });
 
-    // 6. Возвращаем новую пару
     res.json({
       accessToken: newAccessToken,
       refreshToken: newRefreshToken,
     });
   } catch (err) {
-    // Просрочен / неверная подпись / etc.
     return res
       .status(401)
       .json({ message: "Недействительный или просроченный refresh-токен" });
