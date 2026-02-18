@@ -2,16 +2,14 @@ const express = require("express");
 const sequelize = require("./config/db");
 const authRoutes = require("./routes/auth");
 const protectedRoutes = require("./routes/protected");
-
+const cookieParser = require("cookie-parser");
 const helmet = require("helmet");
 const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 
 const app = express();
 
-// ───────────────────────────────────────────────
-// SECURITY MIDDLEWARES
-// ───────────────────────────────────────────────
+app.use(cookieParser());
 
 app.use(
   helmet({

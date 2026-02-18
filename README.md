@@ -43,6 +43,12 @@ GET http://localhost:3000/protected/me
 
 ---
 
+Получение всех бухгалтеров
+GET http://localhost:3000/protected/accountants
+токен
+
+--
+
 Получение всех пользователей (для директора)
 GET http://localhost:3000/protected/users
 

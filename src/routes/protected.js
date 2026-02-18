@@ -42,7 +42,6 @@ const validateUserCreate = [
   body("username")
     .trim()
     .notEmpty()
-    .withMessage("Username обязателен")
     .isLength({ min: 3, max: 50 })
     .withMessage("Username должен быть от 3 до 50 символов")
     .matches(/^[a-zA-Z0-9_]+$/)
@@ -52,7 +51,6 @@ const validateUserCreate = [
   body("email")
     .trim()
     .notEmpty()
-    .withMessage("Email обязателен")
     .isEmail()
     .withMessage("Некорректный формат email")
     .normalizeEmail()
@@ -61,7 +59,6 @@ const validateUserCreate = [
 
   body("password")
     .notEmpty()
-    .withMessage("Пароль обязателен")
     .isLength({ min: 6, max: 100 })
     .withMessage("Пароль должен быть от 6 до 100 символов")
     .matches(/^(?=.*[A-Za-z])(?=.*\d)/)
@@ -77,27 +74,23 @@ const validateUserCreate = [
 const validateApplicationCreate = [
   body("name")
     .notEmpty()
-    .withMessage("Название обязательно")
-    .isLength({ min: 3, max: 200 })
-    .withMessage("Название должно быть от 3 до 200 символов")
+    .isLength({ min: 2, max: 200 })
+    .withMessage("Название должно быть от 2 до 200 символов")
     .escape(),
   body("organization")
     .notEmpty()
-    .withMessage("Организация обязательна")
     .isLength({ min: 2, max: 100 })
     .withMessage("Название организации должно быть от 2 до 100 символов")
     .escape(),
 
   body("cost")
     .notEmpty()
-    .withMessage("Стоимость обязательна")
     .isFloat({ min: 0.01, max: 9999999.99 })
     .withMessage("Стоимость должна быть от 0.01 до 9,999,999.99")
     .toFloat(),
 
   body("quantity")
     .notEmpty()
-    .withMessage("Количество обязательно")
     .isInt({ min: 1, max: 999999 })
     .withMessage("Количество должно быть от 1 до 999,999")
     .toInt(),
@@ -110,7 +103,6 @@ const validateApplicationCreate = [
 
   body("assignedAccountantId")
     .notEmpty()
-    .withMessage("ID бухгалтера обязателен")
     .isInt({ min: 1 })
     .withMessage("Некорректный ID бухгалтера")
     .toInt(),
@@ -124,7 +116,6 @@ const validateDownload = [
 
   param("filename")
     .notEmpty()
-    .withMessage("Имя файла обязательно")
     .isString()
     .withMessage("Имя файла должно быть строкой")
     .custom((value) => {
@@ -145,7 +136,6 @@ const validateProfileUpdate = [
     .optional()
     .trim()
     .isLength({ min: 3, max: 50 })
-    .withMessage("Username должен быть от 3 до 50 символов")
     .matches(/^[a-zA-Z0-9_]+$/)
     .withMessage("Username может содержать только буквы, цифры и подчеркивание")
     .escape(),
@@ -154,10 +144,9 @@ const validateProfileUpdate = [
     .optional()
     .trim()
     .isEmail()
-    .withMessage("Некорректный формат email")
     .normalizeEmail()
     .isLength({ max: 255 })
-    .withMessage("Email слишком длинный"),
+    .withMessage("Email не корректный"),
 
   body("password")
     .optional()
@@ -177,7 +166,6 @@ const validateUserUpdate = [
     .optional()
     .trim()
     .isLength({ min: 3, max: 50 })
-    .withMessage("Username должен быть от 3 до 50 символов")
     .matches(/^[a-zA-Z0-9_]+$/)
     .withMessage("Username может содержать только буквы, цифры и подчеркивание")
     .escape(),
@@ -186,7 +174,6 @@ const validateUserUpdate = [
     .optional()
     .trim()
     .isEmail()
-    .withMessage("Некорректный формат email")
     .normalizeEmail()
     .isLength({ max: 255 })
     .withMessage("Email слишком длинный"),
@@ -194,7 +181,6 @@ const validateUserUpdate = [
   body("password")
     .optional()
     .isLength({ min: 6, max: 100 })
-    .withMessage("Пароль должен быть от 6 до 100 символов")
     .matches(/^(?=.*[A-Za-z])(?=.*\d)/)
     .withMessage("Пароль должен содержать хотя бы одну букву и одну цифру"),
 
@@ -292,7 +278,6 @@ router.post(
     let application = null;
 
     try {
-      // Проверяем существование бухгалтера
       const accountant = await User.findByPk(assignedAccountantId);
       if (!accountant || accountant.role !== "accountant") {
         return res.status(400).json({
@@ -301,7 +286,6 @@ router.post(
         });
       }
 
-      // Создаем заявку
       application = await Application.create({
         name,
         organization,
@@ -364,9 +348,9 @@ router.post(
           name: application.name,
           organization: application.organization,
           cost: Number(application.cost),
-          quantity: application.quantity,
+          quantity: Number(application.quantity),
           comment: application.comment,
-          assignedAccountantId: application.assignedAccountantId,
+          assignedAccountantId: Number(application.assignedAccountantId),
           files: application.downloadLinks || [],
           createdAt: application.createdAt.toISOString(),
         },
@@ -857,6 +841,22 @@ router.get(
     }
   },
 );
+// Список всех бухгалтеров
+router.get("/accountants", verifyToken, async (req, res) => {
+  try {
+    const accountant = await User.findAll({
+      where: {
+        role: "accountant",
+      },
+      attributes: ["id", "username", "email", "role", "createdAt", "updatedAt"],
+    });
+
+    res.json(accountant);
+  } catch (err) {
+    console.error("Ошибка получения списка бухгалтеров:", err);
+    res.status(500).json({ message: "Ошибка сервера" });
+  }
+});
 
 // Обновление любого пользователя (только для директора)
 router.put(

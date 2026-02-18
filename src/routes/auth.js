@@ -34,7 +34,7 @@ router.post("/login", loginLimiter, async (req, res) => {
     const accessToken = jwt.sign(
       { id: user.id, role: user.role },
       process.env.JWT_SECRET,
-      { expiresIn: "15m" },
+      { expiresIn: "60m" },
     );
 
     const refreshToken = jwt.sign(
@@ -49,7 +49,7 @@ router.post("/login", loginLimiter, async (req, res) => {
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      sameSite: "lax",
       maxAge: 7 * 24 * 60 * 60 * 1000,
       path: "/",
     });
@@ -75,7 +75,6 @@ router.post("/refresh", async (req, res) => {
   if (!refreshToken) {
     return res.status(401).json({ message: "Refresh-токен не передан" });
   }
-
   try {
     const decoded = jwt.verify(refreshToken, process.env.REFRESH_SECRET);
 
@@ -90,23 +89,22 @@ router.post("/refresh", async (req, res) => {
     const incomingHash = hashRefreshToken(refreshToken);
     if (user.refreshTokenHash !== incomingHash) {
       await user.update({ refreshTokenHash: null });
+      res.clearCookie("refreshToken", {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+      });
       return res.status(401).json({
         message: "Недействительный refresh-токен (возможно, уже использован)",
       });
     }
-    res.cookie("refreshToken", newRefreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
 
     const newAccessToken = jwt.sign(
       { id: user.id, role: user.role },
       process.env.JWT_SECRET,
-      { expiresIn: "15m" },
+      { expiresIn: "60m" },
     );
-
     const newRefreshToken = jwt.sign(
       { id: user.id, role: user.role },
       process.env.REFRESH_SECRET,
@@ -116,15 +114,40 @@ router.post("/refresh", async (req, res) => {
     const newHash = hashRefreshToken(newRefreshToken);
     await user.update({ refreshTokenHash: newHash });
 
-    res.json({
-      accessToken: newAccessToken,
-      refreshToken: newRefreshToken,
+    res.cookie("refreshToken", newRefreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: "/",
     });
+
+    res.json({ accessToken: newAccessToken });
   } catch (err) {
-    return res
-      .status(401)
-      .json({ message: "Недействительный или просроченный refresh-токен" });
+    console.error("Refresh error:", err.name, err.message);
+    res.clearCookie("refreshToken", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+    });
+
+    return res.status(401).json({
+      message: "Недействительный или просроченный refresh-токен",
+      error: err.name,
+      details: err.message,
+    });
   }
 });
 
+router.post("/logout", (req, res) => {
+  res.clearCookie("refreshToken", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+  });
+
+  res.status(200).json({ message: "Вы вышли из системы" });
+});
 module.exports = router;
