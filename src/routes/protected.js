@@ -890,8 +890,8 @@ router.put(
 
       res.json({ message: "Пользователь обновлён" });
     } catch (err) {
-      console.error("Ошибка обновления пользователя:", err);
-      res.status(500).json({ message: "Ошибка сервера" });
+      console.error("Ошибка обновления пользователя:", err.errors[0].message);
+      res.status(500).json({ message: err.errors[0].message });
     }
   },
 );
