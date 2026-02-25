@@ -4,6 +4,7 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/user");
 const { loginLimiter } = require("../middleware/rateLimit");
 const crypto = require("crypto");
+const verifyToken = require("../middleware/auth");
 require("dotenv").config();
 
 const router = express.Router();
@@ -117,7 +118,7 @@ router.post("/refresh", async (req, res) => {
     res.cookie("refreshToken", newRefreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict", // Изменено с lax
+      sameSite: "strict",
       maxAge: 7 * 24 * 60 * 60 * 1000,
       path: "/",
     });
@@ -134,13 +135,11 @@ router.post("/refresh", async (req, res) => {
 
     return res.status(401).json({
       message: "Недействительный или просроченный refresh-токен",
-      error: err.name,
-      details: err.message,
     });
   }
 });
 
-router.post("/logout", async (req, res) => {
+router.post("/logout", verifyToken, async (req, res) => {
   const refreshToken = req.cookies.refreshToken;
 
   if (refreshToken) {
