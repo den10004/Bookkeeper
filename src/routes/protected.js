@@ -11,6 +11,7 @@ const roleMiddleware = require("../middleware/role");
 const User = require("../models/user");
 const upload = require("../middleware/upload");
 const { generateUniqueFilename } = require("../utils/fileUtils");
+const { ROLES } = require("../constants/roles");
 
 const router = express.Router();
 
@@ -67,7 +68,7 @@ const validateUserCreate = [
   body("role")
     .notEmpty()
     .withMessage("Роль обязательна")
-    .isIn(["accountant", "director", "manager"])
+    .isIn([[ROLES.ACCOUNTANT], [ROLES.DIRECTOR], [ROLES.MANAGER]])
     .withMessage("Недопустимая роль"),
 ];
 
@@ -198,7 +199,7 @@ const validateUserUpdate = [
 router.post(
   "/users",
   verifyToken,
-  roleMiddleware(["director"]),
+  roleMiddleware([ROLES.DIRECTOR]),
   validateUserCreate,
   handleValidationErrors,
   async (req, res) => {
@@ -253,7 +254,7 @@ router.post(
 router.post(
   "/applications",
   verifyToken,
-  roleMiddleware(["manager"]),
+  roleMiddleware([ROLES.MANAGER]),
 
   // 1. Сначала загружаем файлы (multer парсит form-data)
   upload.array("files", 10),
@@ -279,10 +280,10 @@ router.post(
 
     try {
       const accountant = await User.findByPk(assignedAccountantId);
-      if (!accountant || accountant.role !== "accountant") {
+      if (!accountant || accountant.role !== ROLES.ACCOUNTANT) {
         return res.status(400).json({
           message:
-            "assignedAccountantId должен ссылаться на пользователя с ролью accountant",
+            "assignedAccountantId должен ссылаться на пользователя с ролью бухгалтер",
         });
       }
 
@@ -375,7 +376,7 @@ router.get("/applications", verifyToken, async (req, res) => {
   try {
     let applications;
 
-    if (req.user.role === "director") {
+    if (req.user.role === ROLES.DIRECTOR) {
       applications = await Application.findAll({
         include: [
           {
@@ -391,7 +392,7 @@ router.get("/applications", verifyToken, async (req, res) => {
         ],
         order: [["createdAt", "DESC"]],
       });
-    } else if (req.user.role === "accountant") {
+    } else if (req.user.role === ROLES.ACCOUNTANT) {
       applications = await Application.findAll({
         where: { assignedAccountantId: req.user.id },
         include: [
@@ -408,7 +409,7 @@ router.get("/applications", verifyToken, async (req, res) => {
         ],
         order: [["createdAt", "DESC"]],
       });
-    } else if (req.user.role === "manager") {
+    } else if (req.user.role === ROLES.MANAGER) {
       applications = await Application.findAll({
         where: { userId: req.user.id },
         include: [
@@ -467,7 +468,7 @@ router.get(
       }
 
       const canView =
-        req.user.role === "director" ||
+        req.user.role === ROLES.DIRECTOR ||
         application.userId === req.user.id ||
         application.assignedAccountantId === req.user.id;
 
@@ -505,7 +506,7 @@ router.get(
       }
 
       const canAccess =
-        req.user.role === "director" ||
+        req.user.role === ROLES.DIRECTOR ||
         application.userId === req.user.id ||
         application.assignedAccountantId === req.user.id;
 
@@ -581,9 +582,9 @@ router.put(
 
       // Проверка прав доступа
       const canEdit =
-        req.user.role === "director" ||
+        req.user.role === ROLES.DIRECTOR ||
         application.assignedAccountantId === req.user.id ||
-        (req.user.role === "manager" && application.userId === req.user.id);
+        (req.user.role === ROLES.MANAGER && application.userId === req.user.id);
 
       if (!canEdit) {
         return res
@@ -600,14 +601,14 @@ router.put(
       if (comment !== undefined) updates.comment = comment;
 
       if (assignedAccountantId) {
-        if (req.user.role !== "director") {
+        if (req.user.role !== ROLES.DIRECTOR) {
           return res.status(403).json({
             message: "Только директор может переназначать бухгалтера",
           });
         }
 
         const newAccountant = await User.findByPk(assignedAccountantId);
-        if (!newAccountant || newAccountant.role !== "accountant") {
+        if (!newAccountant || newAccountant.role !== ROLES.ACCOUNTANT) {
           return res
             .status(400)
             .json({ message: "Неверный assignedAccountantId" });
@@ -692,10 +693,10 @@ router.delete(
     const { id } = req.params;
 
     try {
-      if (req.user.role !== "director") {
+      if (req.user.role !== ROLES.DIRECTOR) {
         return res.status(403).json({
           message: "Доступ запрещён",
-          reason: "Удалять заявки может только пользователь с ролью director",
+          reason: "Удалять заявки может только пользователь с ролью директор",
         });
       }
 
@@ -821,7 +822,7 @@ router.delete(
 router.get(
   "/users",
   verifyToken,
-  roleMiddleware(["director"]),
+  roleMiddleware([ROLES.DIRECTOR]),
   async (req, res) => {
     try {
       const users = await User.findAll({
@@ -862,7 +863,7 @@ router.get("/accountants", verifyToken, async (req, res) => {
 router.put(
   "/users/:id",
   verifyToken,
-  roleMiddleware(["director"]),
+  roleMiddleware([ROLES.DIRECTOR]),
   validateUserUpdate,
   handleValidationErrors,
   async (req, res) => {
@@ -900,7 +901,7 @@ router.put(
 router.delete(
   "/users/:id",
   verifyToken,
-  roleMiddleware(["director"]),
+  roleMiddleware([ROLES.DIRECTOR]),
   validateIdParam,
   handleValidationErrors,
   async (req, res) => {
@@ -926,11 +927,10 @@ router.delete(
   },
 );
 
-// Тестовый маршрут для директора
 router.get(
   "/director-only",
   verifyToken,
-  roleMiddleware(["director"]),
+  roleMiddleware([ROLES.DIRECTOR]),
   (req, res) => {
     res.json({ message: "Добро пожаловать, директор!" });
   },
