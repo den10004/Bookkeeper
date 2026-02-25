@@ -1,4 +1,4 @@
-# Bookkeeper
+# Bookkeeper Express.js
 
 https://github.com/den10004/Bookkeeper.git
 
