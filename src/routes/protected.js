@@ -255,14 +255,9 @@ router.post(
   "/applications",
   verifyToken,
   roleMiddleware([ROLES.MANAGER]),
-
-  // 1. Сначала загружаем файлы (multer парсит form-data)
   upload.array("files", 10),
-
-  // 2. Потом очистка временных файлов
   require("../middleware/cleanupTmp"),
 
-  // 3. Только потом валидация (req.body уже заполнен)
   validateApplicationCreate,
   handleValidationErrors,
 
@@ -297,7 +292,6 @@ router.post(
         assignedAccountantId: parseInt(assignedAccountantId, 10),
       });
 
-      // Обработка файлов
       const uploadDir = path.join(
         __dirname,
         "../../uploads",
@@ -318,7 +312,6 @@ router.post(
           const originalName = sanitizeFilename(file.originalname);
           const newPath = path.join(uploadDir, uniqueFilename);
 
-          // Проверка на обход директорий
           if (
             path.normalize(newPath).indexOf(path.normalize(uploadDir)) !== 0
           ) {
@@ -371,7 +364,6 @@ router.post(
   },
 );
 
-// Получение списка заявок
 router.get("/applications", verifyToken, async (req, res) => {
   try {
     let applications;
@@ -440,7 +432,6 @@ router.get("/applications", verifyToken, async (req, res) => {
   }
 });
 
-// Получение конкретной заявки
 router.get(
   "/applications/:id",
   verifyToken,
@@ -484,7 +475,6 @@ router.get(
   },
 );
 
-// Скачивание файла
 router.get(
   "/download/:applicationId/:filename",
   verifyToken,
@@ -499,7 +489,6 @@ router.get(
         return res.status(404).json({ message: "Заявка не найдена" });
       }
 
-      // Проверяем, что файл действительно принадлежит заявке
       const fileExists = application.files.some((f) => f.stored === filename);
       if (!fileExists) {
         return res.status(404).json({ message: "Файл не найден в заявке" });
@@ -521,7 +510,6 @@ router.get(
         filename,
       );
 
-      // Дополнительная проверка безопасности
       const normalizedPath = path.normalize(filePath);
       const uploadsDir = path.normalize(path.join(__dirname, "../../uploads"));
       if (!normalizedPath.startsWith(uploadsDir)) {
@@ -534,7 +522,6 @@ router.get(
           .json({ message: "Файл физически не найден на сервере" });
       }
 
-      // Находим оригинальное имя файла для скачивания
       const fileInfo = application.files.find((f) => f.stored === filename);
       const downloadName = fileInfo
         ? fileInfo.original
@@ -580,7 +567,6 @@ router.put(
         return res.status(404).json({ message: "Заявка не найдена" });
       }
 
-      // Проверка прав доступа
       const canEdit =
         req.user.role === ROLES.DIRECTOR ||
         application.assignedAccountantId === req.user.id ||
@@ -592,7 +578,6 @@ router.put(
           .json({ message: "Нет прав на редактирование этой заявки" });
       }
 
-      // Формируем обновления полей
       const updates = {};
       if (name) updates.name = name;
       if (organization) updates.organization = organization;
@@ -616,7 +601,6 @@ router.put(
         updates.assignedAccountantId = parseInt(assignedAccountantId, 10);
       }
 
-      // Обрабатываем новые файлы
       const existingFiles = application.files || [];
       const newFiles = [];
 
@@ -625,7 +609,6 @@ router.put(
         await fs.ensureDir(uploadDir);
 
         for (const file of req.files) {
-          // Генерируем уникальное имя для нового файла
           const uniqueFilename = await generateUniqueFilename(
             uploadDir,
             file.originalname,
@@ -647,13 +630,10 @@ router.put(
         }
       }
 
-      // Объединяем существующие и новые файлы
       updates.files = [...existingFiles, ...newFiles];
 
-      // Обновляем заявку
       await application.update(updates);
 
-      // Получаем обновленную заявку
       const updatedApplication = await Application.findByPk(id, {
         include: [
           {
@@ -683,7 +663,6 @@ router.put(
   },
 );
 
-// Удаление заявки (только для директора)
 router.delete(
   "/applications/:id",
   verifyToken,
@@ -706,7 +685,6 @@ router.delete(
         return res.status(404).json({ message: "Заявка не найдена" });
       }
 
-      // Удаляем файлы
       if (application.files && application.files.length > 0) {
         const uploadDir = path.join(__dirname, "../../uploads", String(id));
 
@@ -717,7 +695,6 @@ router.delete(
         }
       }
 
-      // Удаляем запись заявки из базы данных
       await application.destroy();
 
       res.json({
@@ -733,7 +710,6 @@ router.delete(
   },
 );
 
-// Получить данные текущего пользователя
 router.get("/me", verifyToken, async (req, res) => {
   try {
     const user = await User.findByPk(req.user.id, {
@@ -751,7 +727,6 @@ router.get("/me", verifyToken, async (req, res) => {
   }
 });
 
-// Обновление своего профиля
 router.put(
   "/update/:id",
   verifyToken,
@@ -789,7 +764,6 @@ router.put(
   },
 );
 
-// Удаление своего профиля
 router.delete(
   "/delete/:id",
   verifyToken,
