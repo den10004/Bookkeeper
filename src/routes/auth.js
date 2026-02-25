@@ -5,6 +5,7 @@ const User = require("../models/user");
 const { loginLimiter } = require("../middleware/rateLimit");
 const crypto = require("crypto");
 require("dotenv").config();
+const verifyToken = require("../middleware/auth");
 
 const router = express.Router();
 
@@ -49,7 +50,7 @@ router.post("/login", loginLimiter, async (req, res) => {
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      sameSite: "strict",
       maxAge: 7 * 24 * 60 * 60 * 1000,
       path: "/",
     });
@@ -140,11 +141,26 @@ router.post("/refresh", async (req, res) => {
   }
 });
 
-router.post("/logout", (req, res) => {
+router.post("/logout", async (req, res) => {
+  const refreshToken = req.cookies.refreshToken;
+
+  if (refreshToken) {
+    try {
+      const decoded = jwt.verify(refreshToken, process.env.REFRESH_SECRET);
+      const user = await User.findByPk(decoded.id);
+
+      if (user) {
+        await user.update({ refreshTokenHash: null });
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
   res.clearCookie("refreshToken", {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    sameSite: "strict",
     path: "/",
   });
 
