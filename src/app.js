@@ -6,10 +6,6 @@ const cookieParser = require("cookie-parser");
 const helmet = require("helmet");
 const cors = require("cors");
 const rateLimit = require("express-rate-limit");
-const envFile =
-  process.env.NODE_ENV === "production"
-    ? ".env.production"
-    : ".env.development";
 
 const app = express();
 
@@ -20,7 +16,7 @@ app.use(
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // под ваш фронтенд
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", "data:", "https:"],
         connectSrc: ["'self'", "https:"],
@@ -50,7 +46,7 @@ app.use(
 
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN.split(","),
+    origin: [process.env.CORS_ORIGIN],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
     credentials: true,
@@ -68,7 +64,8 @@ const globalLimiter = rateLimit({
 });
 app.use(globalLimiter);
 
-app.set("trust proxy", 1);
+// 5. Доверяем прокси (nginx, Cloudflare и т.д.) — важно для rate-limit по IP и логирования
+app.set("trust proxy", 1); // 1 = доверяем первому прокси, или "loopback" / число прокси
 
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
