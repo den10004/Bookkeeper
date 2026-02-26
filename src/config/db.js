@@ -4,11 +4,11 @@ const isProduction = process.env.NODE_ENV === "production";
 
 const sequelize = new Sequelize({
   dialect: "postgres",
-  host: process.env.DB_HOST || "localhost",
-  port: parseInt(process.env.DB_PORT || "5432", 10),
-  database: process.env.DB_NAME || "myapp_dev",
-  username: process.env.DB_USER || "postgres",
-  password: process.env.DB_PASSWORD,
+  host: process.env.POSTGRESQL_HOST || "localhost",
+  port: parseInt(process.env.POSTGRESQL_PORT || "5432", 10),
+  database: process.env.POSTGRESQL_DBNAME || "myapp_dev",
+  username: process.env.POSTGRESQL_USER || "postgres",
+  password: process.env.POSTGRESQL_PASSWORD,
 
   logging: false,
 
