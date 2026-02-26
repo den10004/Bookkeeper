@@ -1,39 +1,22 @@
 const { Sequelize } = require("sequelize");
 
-const isProduction = process.env.NODE_ENV === "production";
-
-const sequelize = new Sequelize({
-  dialect: "postgres",
-  host: process.env.POSTGRESQL_HOST || "localhost",
-  port: parseInt(process.env.POSTGRESQL_PORT || "5432", 10),
-  database: process.env.POSTGRESQL_DBNAME || "myapp_dev",
-  username: process.env.POSTGRESQL_USER || "postgres",
-  password: process.env.POSTGRESQL_PASSWORD,
-
-  logging: false,
-
-  dialectOptions: {
-    ssl: isProduction
-      ? {
-          require: true,
-          rejectUnauthorized: false, // для облачных self-signed сертификатов
-        }
-      : false, // ← ключевой момент: локально SSL выключен
+const sequelize = new Sequelize(
+  process.env.DB_NAME || "myapp_dev",
+  process.env.DB_USER || "postgres",
+  process.env.DB_PASSWORD,
+  {
+    host: process.env.DB_HOST || "localhost",
+    port: parseInt(process.env.DB_PORT || "5432", 10),
+    dialect: "postgres",
+    logging: false,
   },
-
-  pool: {
-    max: 10,
-    min: 0,
-    acquire: 30000,
-    idle: 10000,
-  },
-});
+);
 
 sequelize
   .authenticate()
-  .then(() => console.log("PostgreSQL успешно подключена"))
+  .then(() => console.log("PostgreSQL подключён"))
   .catch((err) => {
-    console.error("Ошибка подключения к PostgreSQL:", err.message || err);
+    console.error("Ошибка подключения:", err);
     process.exit(1);
   });
 

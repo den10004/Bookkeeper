@@ -10,6 +10,7 @@ const User = require("./models/user");
 const bcrypt = require("bcryptjs");
 
 const app = express();
+const PORT = process.env.PORT || 3000;
 
 app.use(cookieParser());
 
@@ -18,7 +19,7 @@ app.use(
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // под ваш фронтенд
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", "data:", "https:"],
         connectSrc: ["'self'", "https:"],
@@ -58,16 +59,15 @@ app.use(
 );
 
 const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 минут
-  max: 150, // ~150 запросов с одного IP (настройте под нагрузку)
+  windowMs: 15 * 60 * 1000,
+  max: 150,
   message: { message: "Слишком много запросов. Попробуйте позже." },
   standardHeaders: true,
   legacyHeaders: false,
 });
 app.use(globalLimiter);
 
-// 5. Доверяем прокси (nginx, Cloudflare и т.д.) — важно для rate-limit по IP и логирования
-app.set("trust proxy", 1); // 1 = доверяем первому прокси, или "loopback" / число прокси
+app.set("trust proxy", 1);
 
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -75,16 +75,12 @@ app.use((req, res, next) => {
   next();
 });
 
-// ───────────────────────────────────────────────
-// Парсинг тела (после security middlewares)
-// ───────────────────────────────────────────────
-app.use(express.json({ limit: "10mb" })); // лимит размера тела — защита от DoS
+app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 app.use("/auth", authRoutes);
 app.use("/protected", protectedRoutes);
 
-// 404 — всегда в конце
 app.use((req, res) => {
   res.status(404).json({ message: "Маршрут не найден" });
 });
@@ -102,45 +98,62 @@ app.use((err, req, res, next) => {
 (async () => {
   try {
     await sequelize.authenticate();
-    console.log("БД подключена");
-    const existingDirector = await User.findOne({
-      where: {
-        username: "director",
-      },
+    console.log("PostgreSQL подключён");
+
+    await sequelize.sync({ force: false });
+    console.log("Синхронизация моделей завершена");
+
+    const directorExists = await User.findOne({
+      where: { role: "director" },
     });
 
-    if (existingDirector) {
-      console.log("Пользователь director уже существует → пропускаем");
-      return;
+    if (!directorExists) {
+      const plainPassword = process.env.PASSWORD_DIRECTOR;
+
+      if (!plainPassword || plainPassword.trim() === "") {
+        console.error(
+          "┌────────────────────────────────────────────────────────────┐",
+        );
+        console.error(
+          "│ ОШИБКА: переменная окружения PASSWORD_DIRECTOR не задана   │",
+        );
+        console.error(
+          "│ или пустая. Начальный директор НЕ СОЗДАН.                  │",
+        );
+        console.error(
+          "│ → задайте PASSWORD_DIRECTOR в .env и перезапустите сервер  │",
+        );
+        console.error(
+          "└────────────────────────────────────────────────────────────┘",
+        );
+      } else {
+        const hashedPassword = await bcrypt.hash(plainPassword, 12);
+
+        await User.create({
+          username: "director",
+          email: "director@example.com",
+          password: hashedPassword,
+          role: "director",
+        });
+
+        console.log("╔════════════════════════════════════════════════════╗");
+        console.log("║         СОЗДАН НАЧАЛЬНЫЙ ПОЛЬЗОВАТЕЛЬ DIRECTOR     ║");
+        console.log("╠════════════════════════════════════════════════════╣");
+        console.log("║  Логин    : director                               ║");
+        console.log("║  Email    : director@example.com                   ║");
+        console.log("║  Роль     : director                               ║");
+        console.log("╚════════════════════════════════════════════════════╝");
+      }
+    } else {
+      console.log("Пользователь director уже существует → пропуск создания");
     }
 
-    const plainPassword = process.env.PASSWORD_DIRECTOR;
-
-    if (!plainPassword) {
-      console.warn(
-        "⚠️  process.env.PASSWORD_DIRECTOR не задан — директор НЕ создан",
-      );
-      return;
-    }
-
-    const hashedPassword = await bcrypt.hash(plainPassword, 12);
-
-    await User.create({
-      username: "director",
-      email: "director@example.com",
-      password: hashedPassword,
-      role: "director",
-      refreshTokenHash: null,
+    app.listen(PORT, () => {
+      console.log(`Сервер запущен → http://localhost:${PORT}`);
     });
-
-    console.log("╔════════════════════════════════════════════╗");
-    console.log("║  Создан пользователь по умолчанию:         ║");
-    console.log("║  username → director                       ║");
-    console.log("║  email    → director@example.com           ║");
-    console.log("║  role     → director                       ║");
-    console.log("╚════════════════════════════════════════════╝");
   } catch (err) {
-    console.error("Ошибка при создании директора по умолчанию:", err.message);
+    console.error("Критическая ошибка при старте приложения:", err);
+    process.exit(1);
   }
 })();
 

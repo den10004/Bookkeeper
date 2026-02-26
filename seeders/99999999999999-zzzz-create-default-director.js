@@ -1,4 +1,3 @@
-// seeders/2026XXXXXXXXXX-001-init-director.js
 "use strict";
 
 const bcrypt = require("bcryptjs");
