@@ -6,6 +6,8 @@ const cookieParser = require("cookie-parser");
 const helmet = require("helmet");
 const cors = require("cors");
 const rateLimit = require("express-rate-limit");
+const User = require("./models/user");
+const bcrypt = require("bcryptjs");
 
 const app = express();
 
@@ -87,7 +89,6 @@ app.use((req, res) => {
   res.status(404).json({ message: "Маршрут не найден" });
 });
 
-// Глобальный обработчик ошибок (скрываем стек в production)
 app.use((err, req, res, next) => {
   console.error("Server error:", err);
   const status = err.status || 500;
@@ -100,10 +101,46 @@ app.use((err, req, res, next) => {
 
 (async () => {
   try {
-    await sequelize.sync({ force: false });
+    await sequelize.authenticate();
     console.log("БД подключена");
+    const existingDirector = await User.findOne({
+      where: {
+        username: "director",
+      },
+    });
+
+    if (existingDirector) {
+      console.log("Пользователь director уже существует → пропускаем");
+      return;
+    }
+
+    const plainPassword = process.env.PASSWORD_DIRECTOR;
+
+    if (!plainPassword) {
+      console.warn(
+        "⚠️  process.env.PASSWORD_DIRECTOR не задан — директор НЕ создан",
+      );
+      return;
+    }
+
+    const hashedPassword = await bcrypt.hash(plainPassword, 12);
+
+    await User.create({
+      username: "director",
+      email: "director@example.com",
+      password: hashedPassword,
+      role: "director",
+      refreshTokenHash: null,
+    });
+
+    console.log("╔════════════════════════════════════════════╗");
+    console.log("║  Создан пользователь по умолчанию:         ║");
+    console.log("║  username → director                       ║");
+    console.log("║  email    → director@example.com           ║");
+    console.log("║  role     → director                       ║");
+    console.log("╚════════════════════════════════════════════╝");
   } catch (err) {
-    console.error("Ошибка подключения БД:", err);
+    console.error("Ошибка при создании директора по умолчанию:", err.message);
   }
 })();
 
