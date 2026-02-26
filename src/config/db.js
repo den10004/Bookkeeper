@@ -1,12 +1,12 @@
 const { Sequelize } = require("sequelize");
 
 const sequelize = new Sequelize(
-  process.env.DB_NAME || "myapp_dev",
-  process.env.DB_USER || "postgres",
-  process.env.DB_PASSWORD,
+  process.env.POSTGRESQL_DBNAME || "myapp_dev",
+  process.env.POSTGRESQL_USER || "postgres",
+  process.env.POSTGRESQL_PASSWORD,
   {
-    host: process.env.DB_HOST || "localhost",
-    port: parseInt(process.env.DB_PORT || "5432", 10),
+    host: process.env.POSTGRESQL_HOST || "localhost",
+    port: parseInt(process.env.POSTGRESQL_PORT || "5432", 10),
     dialect: "postgres",
     logging: false,
   },
