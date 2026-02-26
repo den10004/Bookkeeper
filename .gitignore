@@ -25,5 +25,4 @@ yarn-error.log*
 
 
 database.sqlite
-uploads/
 tmp/
