@@ -134,7 +134,7 @@ const validateProfileUpdate = [
     .optional()
     .trim()
     .isLength({ min: 3, max: 50 })
-    .matches(/^[a-zA-Z0-9_]+$/)
+    .matches(/^[a-zA-Zа-яА-ЯёЁ\s]+$/)
     .withMessage("Имя может содержать только буквы и подчёркивание")
     .escape(),
 
@@ -164,7 +164,7 @@ const validateUserUpdate = [
     .optional()
     .trim()
     .isLength({ min: 3, max: 50 })
-    .matches(/^[a-zA-Z0-9_]+$/)
+    .matches(/^[a-zA-Zа-яА-ЯёЁ\s]+$/)
     .withMessage("Имя может содержать только буквы и подчёркивание")
     .escape(),
 
