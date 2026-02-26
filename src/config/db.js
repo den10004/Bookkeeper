@@ -1,45 +1,39 @@
 const { Sequelize } = require("sequelize");
-const path = require("path");
 
-const dialect = process.env.DB_DIALECT;
-
-if (!dialect) {
-  throw new Error(
-    "Переменная DB_DIALECT не установлена! " +
-      "Укажи DB_DIALECT=postgres для PostgreSQL или DB_DIALECT=sqlite для локального файла.",
-  );
-}
-
-if (!["postgres", "sqlite"].includes(dialect)) {
-  throw new Error(
-    `Неподдерживаемый DB_DIALECT: ${dialect}. Допустимо только postgres или sqlite.`,
-  );
-}
+const isProduction = process.env.NODE_ENV === "production";
 
 const sequelize = new Sequelize({
-  dialect,
+  dialect: "postgres",
+  host: process.env.DB_HOST || "localhost",
+  port: parseInt(process.env.DB_PORT || "5432", 10),
+  database: process.env.DB_NAME || "myapp_dev",
+  username: process.env.DB_USER || "postgres",
+  password: process.env.DB_PASSWORD,
 
-  ...(dialect === "postgres" && {
-    host: process.env.DB_HOST || "localhost",
-    port: parseInt(process.env.DB_PORT || "5432", 10),
-    database: process.env.DB_NAME || "myapp_dev",
-    username: process.env.DB_USER || "postgres",
-    password: process.env.DB_PASSWORD,
+  logging: false,
 
-    logging: false,
-  }),
-  /*
-  ...(dialect === "sqlite" && {
-    storage: path.join(__dirname, "../../database.sqlite"),
-    logging: false,
-  }),*/
+  dialectOptions: {
+    ssl: isProduction
+      ? {
+          require: true,
+          rejectUnauthorized: false, // для облачных self-signed сертификатов
+        }
+      : false, // ← ключевой момент: локально SSL выключен
+  },
+
+  pool: {
+    max: 10,
+    min: 0,
+    acquire: 30000,
+    idle: 10000,
+  },
 });
 
 sequelize
   .authenticate()
-  .then(() => console.log(`Подключено к ${dialect.toUpperCase()}`))
+  .then(() => console.log("PostgreSQL успешно подключена"))
   .catch((err) => {
-    console.error("Ошибка подключения к БД:", err);
+    console.error("Ошибка подключения к PostgreSQL:", err.message || err);
     process.exit(1);
   });
 
