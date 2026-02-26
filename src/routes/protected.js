@@ -44,9 +44,9 @@ const validateUserCreate = [
     .trim()
     .notEmpty()
     .isLength({ min: 3, max: 50 })
-    .withMessage("Username должен быть от 3 до 50 символов")
-    .matches(/^[a-zA-Z0-9_а-яА-ЯёЁ]+$/)
-    .withMessage("Username может содержать только буквы, цифры и подчеркивание")
+    .withMessage("Имя должен быть от 3 до 50 символов")
+    .matches(/^[a-zA-Zа-яА-ЯёЁ\s]+$/)
+    .withMessage("Имя может содержать только буквы и пробелы")
     .escape(),
 
   body("email")
