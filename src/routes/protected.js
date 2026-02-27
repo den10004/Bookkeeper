@@ -974,23 +974,41 @@ router.delete(
   handleValidationErrors,
   async (req, res) => {
     const { id } = req.params;
+    const userId = parseInt(id);
 
-    if (parseInt(id) === req.user.id) {
+    if (userId === req.user.id) {
       return res
         .status(403)
-        .json({ message: "Нельзя удалить самого себя через этот маршрут" });
+        .json({ message: "Директор не может удалить сам себя" });
     }
 
     try {
-      const deleted = await User.destroy({ where: { id } });
-      if (!deleted) {
+      const user = await User.findByPk(userId);
+      if (!user) {
         return res.status(404).json({ message: "Пользователь не найден" });
       }
 
-      res.json({ message: "Пользователь удалён" });
+      if (user.role === ROLES.DIRECTOR) {
+        return res
+          .status(403)
+          .json({ message: "Нельзя удалить другого директора" });
+      }
+
+      await user.destroy();
+
+      res.json({
+        message: "Пользователь успешно удалён",
+        deletedUser: {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+        },
+      });
     } catch (err) {
       console.error("Ошибка удаления пользователя:", err);
-      res.status(500).json({ message: "Ошибка сервера" });
+      res
+        .status(500)
+        .json({ message: "Ошибка сервера при удалении пользователя" });
     }
   },
 );
