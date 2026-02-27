@@ -288,10 +288,20 @@ router.post(
         userId: req.user.id,
         assignedAccountantId: parseInt(assignedAccountantId, 10),
       });
-
+      /*
       const uploadDir = path.join(
         __dirname,
         "../../uploads",
+        String(application.id),
+
+      );
+      await fs.ensureDir(uploadDir);
+
+*/
+
+      const uploadDir = path.join(
+        process.cwd(),
+        "uploads",
         String(application.id),
       );
       await fs.ensureDir(uploadDir);
@@ -602,7 +612,7 @@ router.put(
       const newFiles = [];
 
       if (req.files?.length > 0) {
-        const uploadDir = path.join(__dirname, "../../uploads", String(id));
+        const uploadDir = path.join(process.cwd(), "uploads", String(id.id));
         await fs.ensureDir(uploadDir);
 
         for (const file of req.files) {
@@ -683,7 +693,7 @@ router.delete(
       }
 
       if (application.files && application.files.length > 0) {
-        const uploadDir = path.join(__dirname, "../../uploads", String(id));
+        const uploadDir = path.join(process.cwd(), "uploads", String(id.id));
 
         try {
           await fs.remove(uploadDir);
