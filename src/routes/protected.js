@@ -15,177 +15,275 @@ const { ROLES } = require("../constants/roles");
 
 const router = express.Router();
 
+// ───────────────────────────────────────────────
+// ВАЛИДАТОРЫ
+// ───────────────────────────────────────────────
+
+class ValidatorFactory {
+  static username(options = {}) {
+    const { required = false, min = 3, max = 50 } = options;
+
+    let validator = body("username")
+      .isLength({ min, max })
+      .withMessage(`Имя должно быть от ${min} до ${max} символов`)
+      .matches(/^[a-zA-Zа-яА-ЯёЁ\s]+$/)
+      .withMessage("Имя может содержать только буквы и пробелы")
+      .escape();
+
+    if (required) {
+      validator = validator.notEmpty().withMessage("Имя обязательно");
+    } else {
+      validator = validator.optional();
+    }
+
+    return validator;
+  }
+
+  static email(options = {}) {
+    const { required = false } = options;
+
+    let validator = body("email")
+      .trim()
+      .isEmail()
+      .withMessage("Некорректный формат email")
+      .normalizeEmail()
+      .isLength({ max: 255 })
+      .withMessage("Email слишком длинный");
+
+    if (required) {
+      validator = validator.notEmpty().withMessage("Email обязателен");
+    } else {
+      validator = validator.optional();
+    }
+
+    return validator;
+  }
+
+  static password(options = {}) {
+    const { required = false, min = 6, max = 100 } = options;
+
+    let validator = body("password")
+      .isLength({ min, max })
+      .withMessage(`Пароль должен быть от ${min} до ${max} символов`)
+      .matches(/^(?=.*[A-Za-z])(?=.*\d)/)
+      .withMessage("Пароль должен содержать хотя бы одну букву и одну цифру");
+
+    if (required) {
+      validator = validator.notEmpty().withMessage("Пароль обязателен");
+    } else {
+      validator = validator.optional();
+    }
+
+    return validator;
+  }
+
+  static role(options = {}) {
+    const { required = false } = options;
+
+    let validator = body("role")
+      .isIn([ROLES.ACCOUNTANT, ROLES.DIRECTOR, ROLES.MANAGER])
+      .withMessage("Недопустимая роль");
+
+    if (required) {
+      validator = validator.notEmpty().withMessage("Роль обязательна");
+    } else {
+      validator = validator.optional();
+    }
+
+    return validator;
+  }
+
+  static id(paramName = "id", required = true) {
+    let validator = param(paramName)
+      .isInt({ min: 1 })
+      .withMessage(`ID должен быть положительным целым числом`);
+
+    if (required) {
+      validator = validator.notEmpty().withMessage("ID обязателен");
+    }
+
+    return validator.toInt();
+  }
+
+  static applicationId() {
+    return param("applicationId")
+      .isInt({ min: 1 })
+      .withMessage("Некорректный ID заявки")
+      .toInt();
+  }
+
+  static filename() {
+    return param("filename")
+      .notEmpty()
+      .isString()
+      .withMessage("Имя файла должно быть строкой")
+      .custom((value) => {
+        if (!/^[a-zA-Z0-9а-яА-ЯёЁ\s._-]+$/.test(value)) {
+          throw new Error("Имя файла содержит недопустимые символы");
+        }
+        return true;
+      });
+  }
+
+  static applicationName(options = {}) {
+    const { required = true, min = 2, max = 200 } = options;
+
+    let validator = body("name")
+      .isLength({ min, max })
+      .withMessage(`Название должно быть от ${min} до ${max} символов`)
+      .escape();
+
+    if (required) {
+      validator = validator.notEmpty().withMessage("Название обязательно");
+    } else {
+      validator = validator.optional();
+    }
+
+    return validator;
+  }
+
+  static organization(options = {}) {
+    const { required = true, min = 2, max = 100 } = options;
+
+    let validator = body("organization")
+      .isLength({ min, max })
+      .withMessage(
+        `Название организации должно быть от ${min} до ${max} символов`,
+      )
+      .escape();
+
+    if (required) {
+      validator = validator
+        .notEmpty()
+        .withMessage("Название организации обязательно");
+    } else {
+      validator = validator.optional();
+    }
+
+    return validator;
+  }
+
+  static cost(options = {}) {
+    const { required = true, min = 0.01, max = 9999999.99 } = options;
+
+    let validator = body("cost")
+      .isFloat({ min, max })
+      .withMessage(`Стоимость должна быть от ${min} до ${max.toLocaleString()}`)
+      .toFloat();
+
+    if (required) {
+      validator = validator.notEmpty().withMessage("Стоимость обязательна");
+    } else {
+      validator = validator.optional();
+    }
+
+    return validator;
+  }
+
+  static quantity(options = {}) {
+    const { required = true, min = 1, max = 999999 } = options;
+
+    let validator = body("quantity")
+      .isInt({ min, max })
+      .withMessage(`Количество должно быть от ${min} до ${max}`)
+      .toInt();
+
+    if (required) {
+      validator = validator.notEmpty().withMessage("Количество обязательно");
+    } else {
+      validator = validator.optional();
+    }
+
+    return validator;
+  }
+
+  static comment(options = {}) {
+    const { max = 1000 } = options;
+
+    return body("comment")
+      .optional()
+      .isLength({ max })
+      .withMessage(`Комментарий не должен превышать ${max} символов`)
+      .escape();
+  }
+
+  static assignedAccountantId(options = {}) {
+    const { required = true } = options;
+
+    let validator = body("assignedAccountantId")
+      .isInt({ min: 1 })
+      .withMessage("Некорректный ID бухгалтера")
+      .toInt();
+
+    if (required) {
+      validator = validator.notEmpty().withMessage("ID бухгалтера обязателен");
+    } else {
+      validator = validator.optional();
+    }
+
+    return validator;
+  }
+}
+
+// ───────────────────────────────────────────────
+// ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+// ───────────────────────────────────────────────
+
 const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
+    const firstError = errors.array()[0];
+    const errorMessage = firstError.path ? `${firstError.msg}` : firstError.msg;
+
     return res.status(400).json({
-      message: "Ошибка валидации",
-      errors: errors.array().map((err) => ({
-        field: err.path,
-        message: err.msg,
-        value: err.value,
-      })),
+      message: errorMessage,
+      details:
+        process.env.NODE_ENV === "development" ? errors.array() : undefined,
     });
   }
   next();
 };
 
-const validateIdParam = [
-  param("id")
-    .notEmpty()
-    .withMessage("ID обязателен")
-    .isInt({ min: 1 })
-    .withMessage("ID должен быть положительным целым числом")
-    .toInt(),
-];
+// ───────────────────────────────────────────────
+// КОМБИНИРОВАННЫЕ ВАЛИДАЦИИ
+// ───────────────────────────────────────────────
+
+const validateIdParam = [ValidatorFactory.id("id")];
 
 const validateUserCreate = [
-  body("username")
-    .notEmpty()
-    .isLength({ min: 3, max: 50 })
-    .withMessage("Имя должен быть от 3 до 50 символов")
-    .escape(),
-
-  body("email")
-    .trim()
-    .notEmpty()
-    .isEmail()
-    .withMessage("Некорректный формат email")
-    .normalizeEmail()
-    .isLength({ max: 255 })
-    .withMessage("Email слишком длинный"),
-
-  body("password")
-    .notEmpty()
-    .isLength({ min: 6, max: 100 })
-    .withMessage("Пароль должен быть от 6 до 100 символов")
-    .matches(/^(?=.*[A-Za-z])(?=.*\d)/)
-    .withMessage("Пароль должен содержать хотя бы одну букву и одну цифру"),
-
-  body("role")
-    .notEmpty()
-    .withMessage("Роль обязательна")
-    .isIn([[ROLES.ACCOUNTANT], [ROLES.DIRECTOR], [ROLES.MANAGER]])
-    .withMessage("Недопустимая роль"),
+  ValidatorFactory.username({ required: true }),
+  ValidatorFactory.email({ required: true }),
+  ValidatorFactory.password({ required: true }),
+  ValidatorFactory.role({ required: true }),
 ];
 
 const validateApplicationCreate = [
-  body("name")
-    .notEmpty()
-    .isLength({ min: 2, max: 200 })
-    .withMessage("Название должно быть от 2 до 200 символов")
-    .escape(),
-  body("organization")
-    .notEmpty()
-    .isLength({ min: 2, max: 100 })
-    .withMessage("Название организации должно быть от 2 до 100 символов")
-    .escape(),
-
-  body("cost")
-    .notEmpty()
-    .isFloat({ min: 0.01, max: 9999999.99 })
-    .withMessage("Стоимость должна быть от 0.01 до 9,999,999.99")
-    .toFloat(),
-
-  body("quantity")
-    .notEmpty()
-    .isInt({ min: 1, max: 999999 })
-    .withMessage("Количество должно быть от 1 до 999,999")
-    .toInt(),
-
-  body("comment")
-    .optional()
-    .isLength({ max: 1000 })
-    .withMessage("Комментарий не должен превышать 1000 символов")
-    .escape(),
-
-  body("assignedAccountantId")
-    .notEmpty()
-    .isInt({ min: 1 })
-    .withMessage("Некорректный ID бухгалтера")
-    .toInt(),
+  ValidatorFactory.applicationName({ required: true }),
+  ValidatorFactory.organization({ required: true }),
+  ValidatorFactory.cost({ required: true }),
+  ValidatorFactory.quantity({ required: true }),
+  ValidatorFactory.comment(),
+  ValidatorFactory.assignedAccountantId({ required: true }),
 ];
 
 const validateDownload = [
-  param("applicationId")
-    .isInt({ min: 1 })
-    .withMessage("Некорректный ID заявки")
-    .toInt(),
-
-  param("filename")
-    .notEmpty()
-    .isString()
-    .withMessage("Имя файла должно быть строкой")
-    .custom((value) => {
-      if (!/^[a-zA-Z0-9а-яА-ЯёЁ\s._-]+$/.test(value)) {
-        throw new Error("Имя файла содержит недопустимые символы");
-      }
-      return true;
-    }),
+  ValidatorFactory.applicationId(),
+  ValidatorFactory.filename(),
 ];
 
 const validateProfileUpdate = [
-  param("id")
-    .isInt({ min: 1 })
-    .withMessage("Некорректный ID пользователя")
-    .toInt(),
-
-  body("username")
-    .optional()
-    .trim()
-    .isLength({ min: 3, max: 50 })
-    .matches(/^[a-zA-Zа-яА-ЯёЁ\s]+$/)
-    .withMessage("Имя может содержать только буквы и подчёркивание")
-    .escape(),
-
-  body("email")
-    .optional()
-    .trim()
-    .isEmail()
-    .normalizeEmail()
-    .isLength({ max: 255 })
-    .withMessage("Email не корректный"),
-
-  body("password")
-    .optional()
-    .isLength({ min: 6, max: 100 })
-    .withMessage("Пароль должен быть от 6 до 100 символов")
-    .matches(/^(?=.*[A-Za-z])(?=.*\d)/)
-    .withMessage("Пароль должен содержать хотя бы одну букву и одну цифру"),
+  ValidatorFactory.id(),
+  ValidatorFactory.username({ required: false }),
+  ValidatorFactory.email({ required: false }),
+  ValidatorFactory.password({ required: false }),
 ];
 
 const validateUserUpdate = [
-  param("id")
-    .isInt({ min: 1 })
-    .withMessage("Некорректный ID пользователя")
-    .toInt(),
-
-  body("username")
-    .optional()
-    .trim()
-    .isLength({ min: 3, max: 50 })
-    .matches(/^[a-zA-Zа-яА-ЯёЁ\s]+$/)
-    .withMessage("Имя может содержать только буквы и подчёркивание")
-    .escape(),
-
-  body("email")
-    .optional()
-    .trim()
-    .isEmail()
-    .normalizeEmail()
-    .isLength({ max: 255 })
-    .withMessage("Email слишком длинный"),
-
-  body("password")
-    .optional()
-    .isLength({ min: 6, max: 100 })
-    .matches(/^(?=.*[A-Za-z])(?=.*\d)/)
-    .withMessage("Пароль должен содержать хотя бы одну букву и одну цифру"),
-
-  body("role")
-    .optional()
-    .isIn(["accountant", "director", "manager"])
-    .withMessage("Недопустимая роль"),
+  ValidatorFactory.id(),
+  ValidatorFactory.username({ required: false }),
+  ValidatorFactory.email({ required: false }),
+  ValidatorFactory.password({ required: false }),
+  ValidatorFactory.role({ required: false }),
 ];
 
 // ───────────────────────────────────────────────
@@ -254,10 +352,8 @@ router.post(
   roleMiddleware([ROLES.MANAGER]),
   upload.array("files", 10),
   require("../middleware/cleanupTmp"),
-
   validateApplicationCreate,
   handleValidationErrors,
-
   async (req, res) => {
     const {
       name,
@@ -288,16 +384,6 @@ router.post(
         userId: req.user.id,
         assignedAccountantId: parseInt(assignedAccountantId, 10),
       });
-      /*
-      const uploadDir = path.join(
-        __dirname,
-        "../../uploads",
-        String(application.id),
-
-      );
-      await fs.ensureDir(uploadDir);
-
-*/
 
       const uploadDir = path.join(
         process.cwd(),
@@ -612,7 +698,7 @@ router.put(
       const newFiles = [];
 
       if (req.files?.length > 0) {
-        const uploadDir = path.join(process.cwd(), "uploads", String(id.id));
+        const uploadDir = path.join(process.cwd(), "uploads", String(id));
         await fs.ensureDir(uploadDir);
 
         for (const file of req.files) {
@@ -693,7 +779,7 @@ router.delete(
       }
 
       if (application.files && application.files.length > 0) {
-        const uploadDir = path.join(process.cwd(), "uploads", String(id.id));
+        const uploadDir = path.join(process.cwd(), "uploads", String(id));
 
         try {
           await fs.remove(uploadDir);
@@ -823,6 +909,7 @@ router.get(
     }
   },
 );
+
 // Список всех бухгалтеров
 router.get("/accountants", verifyToken, async (req, res) => {
   try {
