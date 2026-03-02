@@ -425,7 +425,6 @@ router.post(
         await application.update({ files: savedFiles });
         await application.reload();
       }
-      const { io } = require("../server");
 
       const fullApplication = await Application.findByPk(application.id, {
         include: [
@@ -455,12 +454,8 @@ router.post(
           createdAt: application.createdAt.toISOString(),
         },
       });
-      console.log(
-        "Перед эмиссией → подключённых клиентов:",
-        io.engine.clientsCount,
-      );
+      const { io } = require("../server");
       io.emit("application:created", fullApplication.get({ plain: true }));
-      console.log("Эмиссия application:created выполнена");
     } catch (err) {
       console.error("Ошибка создания заявки:", err);
 
@@ -679,7 +674,6 @@ router.put(
             message: "Только директор может переназначать бухгалтера",
           });
         }
-
         const newAccountant = await User.findByPk(assignedAccountantId);
         if (!newAccountant || newAccountant.role !== ROLES.ACCOUNTANT) {
           return res
@@ -691,23 +685,18 @@ router.put(
 
       const existingFiles = application.files || [];
       const newFiles = [];
-
       if (req.files?.length > 0) {
         const uploadDir = path.join(process.cwd(), "uploads", String(id));
         await fs.ensureDir(uploadDir);
-
         for (const file of req.files) {
           const uniqueFilename = await generateUniqueFilename(
             uploadDir,
             file.originalname,
             file.mimetype,
           );
-
           const originalName = sanitizeFilename(file.originalname);
           const newPath = path.join(uploadDir, uniqueFilename);
-
           await fs.move(file.path, newPath, { overwrite: false });
-
           newFiles.push({
             stored: uniqueFilename,
             original: originalName,
@@ -717,7 +706,6 @@ router.put(
           });
         }
       }
-
       updates.files = [...existingFiles, ...newFiles];
 
       await application.update(updates);
@@ -727,19 +715,40 @@ router.put(
           {
             model: User,
             as: "Creator",
-            attributes: ["id", "username", "email"],
+            attributes: ["id", "username", "email", "role"],
           },
           {
             model: User,
             as: "AssignedAccountant",
-            attributes: ["id", "username", "email"],
+            attributes: ["id", "username", "email", "role"],
           },
         ],
       });
 
+      if (!updatedApplication) {
+        return res
+          .status(404)
+          .json({ message: "Заявка пропала после обновления" });
+      }
+
+      const plain = updatedApplication.get({ plain: true });
+      const { io } = require("../server");
+      io.to(`user:${plain.userId}`).emit("application:updated", plain);
+      if (plain.assignedAccountantId) {
+        io.to(`user:${plain.assignedAccountantId}`).emit(
+          "application:updated",
+          plain,
+        );
+      }
+      io.to("role:director").emit("application:updated", plain);
+
+      console.log(
+        `Обновлена заявка ${id}, уведомлены: manager ${plain.userId}, accountant ${plain.assignedAccountantId || "нет"}, directors`,
+      );
+
       res.json({
         message: "Заявка обновлена",
-        application: updatedApplication,
+        application: plain,
       });
     } catch (err) {
       console.error("Ошибка редактирования заявки:", err);
@@ -768,14 +777,15 @@ router.delete(
       }
 
       const application = await Application.findByPk(id);
-
       if (!application) {
         return res.status(404).json({ message: "Заявка не найдена" });
       }
 
+      const creatorId = application.userId;
+      const accountantId = application.assignedAccountantId;
+
       if (application.files && application.files.length > 0) {
         const uploadDir = path.join(process.cwd(), "uploads", String(id));
-
         try {
           await fs.remove(uploadDir);
         } catch (fsErr) {
@@ -784,7 +794,23 @@ router.delete(
       }
 
       await application.destroy();
+      const payload = { id: String(id) };
+      const { io } = require("../server");
+      io.to(`user:${req.user.id}`).emit("application:deleted", payload);
 
+      if (creatorId) {
+        io.to(`user:${creatorId}`).emit("application:deleted", payload);
+      }
+
+      if (accountantId) {
+        io.to(`user:${accountantId}`).emit("application:deleted", payload);
+      }
+
+      io.to("role:director").emit("application:deleted", payload);
+
+      console.log(
+        `Удалена заявка ${id}, уведомлены: director ${req.user.id}, manager ${creatorId || "нет"}, accountant ${accountantId || "нет"}, все директора`,
+      );
       res.json({
         message: "Заявка успешно удалена",
         deletedId: id,
