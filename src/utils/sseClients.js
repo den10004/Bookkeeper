@@ -1,9 +1,7 @@
-// sseClients.js
 const clients = new Set();
 
 function addClient(res) {
   clients.add(res);
-  // Опционально: можно отправить heartbeat каждые ~30 сек
   const heartbeat = setInterval(() => {
     if (clients.has(res) && !res.writableEnded) {
       res.write(": heartbeat\n\n");

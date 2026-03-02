@@ -732,8 +732,17 @@ router.put(
       }
 
       const plain = updatedApplication.get({ plain: true });
+      plain.updatedBy = req.user.id;
+      if (req.user) {
+        plain.Updater = {
+          id: req.user.id,
+          username: req.user.username,
+          role: req.user.role,
+        };
+      }
       const { io } = require("../server");
       io.to(`user:${plain.userId}`).emit("application:updated", plain);
+      io.emit("application:updated", plain);
       if (plain.assignedAccountantId) {
         io.to(`user:${plain.assignedAccountantId}`).emit(
           "application:updated",
@@ -802,6 +811,10 @@ router.delete(
       }
 
       io.to("role:director").emit("application:deleted", payload);
+      io.emit("application:deleted", {
+        id: application.id,
+        deletedBy: req.user.id,
+      });
       res.json({
         message: "Заявка успешно удалена",
         deletedId: id,
