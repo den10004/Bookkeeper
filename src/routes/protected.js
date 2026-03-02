@@ -5,14 +5,12 @@ const sanitizeFilename = require("sanitize-filename");
 const fs = require("fs-extra");
 const path = require("path");
 const Application = require("../models/application");
-const crypto = require("crypto");
 const verifyToken = require("../middleware/auth");
 const roleMiddleware = require("../middleware/role");
 const User = require("../models/user");
 const upload = require("../middleware/upload");
 const { generateUniqueFilename } = require("../utils/fileUtils");
 const { ROLES } = require("../constants/roles");
-
 const router = express.Router();
 
 // ───────────────────────────────────────────────
@@ -427,7 +425,22 @@ router.post(
         await application.update({ files: savedFiles });
         await application.reload();
       }
+      const { io } = require("../server");
 
+      const fullApplication = await Application.findByPk(application.id, {
+        include: [
+          {
+            model: User,
+            as: "Creator",
+            attributes: ["id", "username", "email", "role"],
+          },
+          {
+            model: User,
+            as: "AssignedAccountant",
+            attributes: ["id", "username", "email", "role"],
+          },
+        ],
+      });
       res.status(201).json({
         message: "Заявка успешно создана",
         application: {
@@ -442,6 +455,12 @@ router.post(
           createdAt: application.createdAt.toISOString(),
         },
       });
+      console.log(
+        "Перед эмиссией → подключённых клиентов:",
+        io.engine.clientsCount,
+      );
+      io.emit("application:created", fullApplication.get({ plain: true }));
+      console.log("Эмиссия application:created выполнена");
     } catch (err) {
       console.error("Ошибка создания заявки:", err);
 
@@ -459,63 +478,39 @@ router.post(
 
 router.get("/applications", verifyToken, async (req, res) => {
   try {
-    let applications;
+    const commonInclude = [
+      {
+        model: User,
+        as: "Creator",
+        attributes: ["id", "username", "email", "role"],
+      },
+      {
+        model: User,
+        as: "AssignedAccountant",
+        attributes: ["id", "username", "email", "role"],
+      },
+    ];
+
+    const order = [["createdAt", "DESC"]];
+
+    let where = {};
 
     if (req.user.role === ROLES.DIRECTOR) {
-      applications = await Application.findAll({
-        include: [
-          {
-            model: User,
-            as: "Creator",
-            attributes: ["id", "username", "email", "role"],
-          },
-          {
-            model: User,
-            as: "AssignedAccountant",
-            attributes: ["id", "username", "email", "role"],
-          },
-        ],
-        order: [["createdAt", "DESC"]],
-      });
     } else if (req.user.role === ROLES.ACCOUNTANT) {
-      applications = await Application.findAll({
-        where: { assignedAccountantId: req.user.id },
-        include: [
-          {
-            model: User,
-            as: "Creator",
-            attributes: ["id", "username", "email", "role"],
-          },
-          {
-            model: User,
-            as: "AssignedAccountant",
-            attributes: ["id", "username", "email", "role"],
-          },
-        ],
-        order: [["createdAt", "DESC"]],
-      });
+      where = { assignedAccountantId: req.user.id };
     } else if (req.user.role === ROLES.MANAGER) {
-      applications = await Application.findAll({
-        where: { userId: req.user.id },
-        include: [
-          {
-            model: User,
-            as: "Creator",
-            attributes: ["id", "username", "email", "role"],
-          },
-          {
-            model: User,
-            as: "AssignedAccountant",
-            attributes: ["id", "username", "email", "role"],
-          },
-        ],
-        order: [["createdAt", "DESC"]],
-      });
+      where = { userId: req.user.id };
     } else {
       return res.status(403).json({ message: "Нет прав для просмотра заявок" });
     }
 
-    res.json(applications || []);
+    const applications = await Application.findAll({
+      where,
+      include: commonInclude,
+      order,
+    });
+
+    res.json(applications);
   } catch (err) {
     console.error("Ошибка при получении заявок:", err);
     res.status(500).json({
