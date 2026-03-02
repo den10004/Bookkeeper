@@ -46,7 +46,7 @@ io.use((socket, next) => {
 });
 
 io.on("connection", (socket) => {
-  const user = socket.user; // из middleware { id, role, ... }
+  const user = socket.user;
 
   if (!user || !user.id) {
     socket.disconnect(true);

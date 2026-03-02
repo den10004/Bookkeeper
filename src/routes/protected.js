@@ -742,12 +742,7 @@ router.put(
       }
       io.to("role:director").emit("application:updated", plain);
 
-      console.log(
-        `Обновлена заявка ${id}, уведомлены: manager ${plain.userId}, accountant ${plain.assignedAccountantId || "нет"}, directors`,
-      );
-
       res.json({
-        message: "Заявка обновлена",
         application: plain,
       });
     } catch (err) {
@@ -807,10 +802,6 @@ router.delete(
       }
 
       io.to("role:director").emit("application:deleted", payload);
-
-      console.log(
-        `Удалена заявка ${id}, уведомлены: director ${req.user.id}, manager ${creatorId || "нет"}, accountant ${accountantId || "нет"}, все директора`,
-      );
       res.json({
         message: "Заявка успешно удалена",
         deletedId: id,
