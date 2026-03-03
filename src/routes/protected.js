@@ -79,7 +79,7 @@ class ValidatorFactory {
     const { required = false } = options;
 
     let validator = body("role")
-      .isIn([ROLES.ACCOUNTANT, ROLES.DIRECTOR, ROLES.MANAGER])
+      .isIn([ROLES.ACCOUNTANT, ROLES.DIRECTOR, ROLES.MANAGER, ROLES.ROP])
       .withMessage("Недопустимая роль");
 
     if (required) {
@@ -476,7 +476,7 @@ const validateUserUpdate = [
 router.post(
   "/users",
   verifyToken,
-  roleMiddleware([ROLES.DIRECTOR]),
+  roleMiddleware([ROLES.DIRECTOR, ROLES.ROP]),
   validateUserCreate,
   handleValidationErrors,
   async (req, res) => {
@@ -527,11 +527,11 @@ router.post(
   },
 );
 
-// Создание заявки (только для менеджера)
+// Создание заявки (только для менеджера, роп)
 router.post(
   "/applications",
   verifyToken,
-  roleMiddleware([ROLES.MANAGER]),
+  roleMiddleware([ROLES.MANAGER, ROLES.ROP]),
   upload.array("files", 10),
   require("../middleware/cleanupTmp"),
   validateApplicationCreate,
@@ -997,7 +997,7 @@ router.delete(
     const { id } = req.params;
 
     try {
-      if (req.user.role !== ROLES.DIRECTOR) {
+      if (req.user.role !== ROLES.DIRECTOR && req.user.role !== ROLES.ROP) {
         return res.status(403).json({
           message: "Доступ запрещён",
           reason: "Удалять заявки может только пользователь с ролью директор",
@@ -1138,7 +1138,7 @@ router.delete(
 router.get(
   "/users",
   verifyToken,
-  roleMiddleware([ROLES.DIRECTOR]),
+  roleMiddleware([ROLES.DIRECTOR, ROLES.ROP]),
   async (req, res) => {
     try {
       const users = await User.findAll({
@@ -1180,7 +1180,7 @@ router.get("/accountants", verifyToken, async (req, res) => {
 router.put(
   "/users/:id",
   verifyToken,
-  roleMiddleware([ROLES.DIRECTOR]),
+  roleMiddleware([ROLES.DIRECTOR, ROLES.ROP]),
   validateUserUpdate,
   handleValidationErrors,
   async (req, res) => {
@@ -1218,7 +1218,7 @@ router.put(
 router.delete(
   "/users/:id",
   verifyToken,
-  roleMiddleware([ROLES.DIRECTOR]),
+  roleMiddleware([ROLES.DIRECTOR, ROLES.ROP]),
   validateIdParam,
   handleValidationErrors,
   async (req, res) => {
@@ -1237,7 +1237,7 @@ router.delete(
         return res.status(404).json({ message: "Пользователь не найден" });
       }
 
-      if (user.role === ROLES.DIRECTOR) {
+      if (user.role === ROLES.DIRECTOR && req.user.role !== ROLES.ROP) {
         return res
           .status(403)
           .json({ message: "Нельзя удалить другого директора" });
