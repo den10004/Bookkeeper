@@ -221,6 +221,22 @@ class ValidatorFactory {
 
     return validator;
   }
+
+  static requestType(options = {}) {
+    const { required = true } = options;
+
+    let validator = body("requestType")
+      .isIn(["new_client", "existing_client", "document_request"])
+      .withMessage("Некорректный тип запроса");
+
+    if (required) {
+      validator = validator.notEmpty().withMessage("Тип запроса обязателен");
+    } else {
+      validator = validator.optional();
+    }
+
+    return validator;
+  }
 }
 
 // ───────────────────────────────────────────────
@@ -258,10 +274,36 @@ const validateUserCreate = [
 const validateApplicationCreate = [
   ValidatorFactory.applicationName({ required: true }),
   ValidatorFactory.organization({ required: true }),
-  ValidatorFactory.cost({ required: true }),
-  ValidatorFactory.quantity({ required: true }),
+  ValidatorFactory.cost({ required: false }),
+  ValidatorFactory.quantity({ required: false }),
+  ValidatorFactory.requestType({ required: true }),
   ValidatorFactory.comment(),
   ValidatorFactory.assignedAccountantId({ required: true }),
+
+  body().custom((value, { req }) => {
+    if (req.body.requestType === "document_request") {
+      if (!req.body.documentType) {
+        throw new Error(
+          "Для запроса документа необходимо указать тип документа",
+        );
+      }
+      if (!req.body.documentDescription) {
+        throw new Error("Для запроса документа необходимо указать описание");
+      }
+    } else {
+      if (!req.body.cost) {
+        throw new Error(
+          "Для данного типа запроса необходимо указать стоимость",
+        );
+      }
+      if (!req.body.quantity) {
+        throw new Error(
+          "Для данного типа запроса необходимо указать количество",
+        );
+      }
+    }
+    return true;
+  }),
 ];
 
 const validateDownload = [
@@ -360,6 +402,7 @@ router.post(
       quantity,
       comment,
       assignedAccountantId,
+      requestType,
     } = req.body;
 
     let application = null;
@@ -372,16 +415,25 @@ router.post(
             "assignedAccountantId должен ссылаться на пользователя с ролью бухгалтер",
         });
       }
-
-      application = await Application.create({
+      const applicationData = {
         name,
         organization,
-        cost: parseFloat(cost),
-        quantity: parseInt(quantity, 10),
-        comment: comment || null,
         userId: req.user.id,
         assignedAccountantId: parseInt(assignedAccountantId, 10),
-      });
+        requestType,
+        comment: comment || null,
+      };
+
+      if (requestType === "document_request") {
+        applicationData.cost = null;
+        applicationData.quantity = null;
+      } else {
+        applicationData.cost = parseFloat(cost);
+        applicationData.quantity = parseInt(quantity, 10);
+        applicationData.documentDescription = null;
+      }
+
+      application = await Application.create(applicationData);
 
       const uploadDir = path.join(
         process.cwd(),
@@ -440,20 +492,23 @@ router.post(
           },
         ],
       });
+
       res.status(201).json({
         message: "Заявка успешно создана",
         application: {
           id: application.id,
           name: application.name,
           organization: application.organization,
-          cost: Number(application.cost),
-          quantity: Number(application.quantity),
+          cost: application.cost ? Number(application.cost) : null,
+          quantity: application.quantity ? Number(application.quantity) : null,
           comment: application.comment,
           assignedAccountantId: Number(application.assignedAccountantId),
+          requestType: application.requestType,
           files: application.downloadLinks || [],
           createdAt: application.createdAt.toISOString(),
         },
       });
+
       const { io } = require("../server");
       io.emit("application:created", fullApplication.get({ plain: true }));
     } catch (err) {
@@ -470,7 +525,6 @@ router.post(
     }
   },
 );
-
 router.get("/applications", verifyToken, async (req, res) => {
   try {
     const commonInclude = [
@@ -625,7 +679,7 @@ router.get(
   },
 );
 
-// Обновление заявки
+// Обновление
 router.put(
   "/applications/:id",
   verifyToken,
@@ -642,6 +696,8 @@ router.put(
       quantity,
       comment,
       assignedAccountantId,
+      requestType,
+      documentDescription,
     } = req.body;
 
     try {
@@ -664,9 +720,11 @@ router.put(
       const updates = {};
       if (name) updates.name = name;
       if (organization) updates.organization = organization;
-      if (cost) updates.cost = parseFloat(cost);
-      if (quantity) updates.quantity = parseInt(quantity, 10);
+      if (cost !== undefined) updates.cost = cost ? parseFloat(cost) : null;
+      if (quantity !== undefined)
+        updates.quantity = quantity ? parseInt(quantity, 10) : null;
       if (comment !== undefined) updates.comment = comment;
+      if (requestType) updates.requestType = requestType;
 
       if (assignedAccountantId) {
         if (req.user.role !== ROLES.DIRECTOR) {

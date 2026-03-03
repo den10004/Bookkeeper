@@ -12,12 +12,17 @@ const sequelize = new Sequelize(
   },
 );
 
-sequelize
-  .authenticate()
-  .then(() => console.log("PostgreSQL подключён"))
-  .catch((err) => {
-    console.error("Ошибка подключения:", err);
+(async () => {
+  try {
+    await sequelize.authenticate();
+    console.log("Подключение к PostgreSQL успешно установлено");
+
+    await sequelize.sync({ alter: true });
+    console.log("Модели синхронизированы с PostgreSQL");
+  } catch (err) {
+    console.error("Ошибка подключения или синхронизации:", err);
     process.exit(1);
-  });
+  }
+})();
 
 module.exports = sequelize;
