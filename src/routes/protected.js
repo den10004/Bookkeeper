@@ -237,6 +237,126 @@ class ValidatorFactory {
 
     return validator;
   }
+  static documentType(options = {}) {
+    const { required = false } = options;
+
+    let validator = body("documentType")
+      .isIn(["work_certificate", "reconciliation_act"])
+      .withMessage(
+        "Тип документа должен быть 'Акт выполненных работ' или 'Акт сверки'",
+      );
+
+    if (required) {
+      validator = validator.notEmpty().withMessage("Тип документа обязателен");
+    } else {
+      validator = validator.optional();
+    }
+
+    return validator;
+  }
+
+  static inn(options = {}) {
+    const { required = false } = options;
+
+    let validator = body("inn")
+      .matches(/^\d{10}$|^\d{12}$/)
+      .withMessage("ИНН должен содержать 10 или 12 цифр");
+
+    if (required) {
+      validator = validator.notEmpty().withMessage("ИНН обязателен");
+    } else {
+      validator = validator.optional();
+    }
+
+    return validator;
+  }
+
+  static accountNumber(options = {}) {
+    const { required = false, max = 20 } = options;
+
+    let validator = body("accountNumber")
+      .isLength({ max })
+      .withMessage(`Номер счёта не должен превышать ${max} символов`)
+      .matches(/^[a-zA-Z0-9-]+$/)
+      .withMessage("Номер счёта может содержать только буквы, цифры и дефис");
+
+    if (required) {
+      validator = validator.notEmpty().withMessage("Номер счёта обязателен");
+    } else {
+      validator = validator.optional();
+    }
+
+    return validator;
+  }
+
+  static periodDate(fieldName) {
+    return body(fieldName)
+      .optional({ nullable: true, checkFalsy: true })
+      .custom((value) => {
+        if (!value || value === "") {
+          return true;
+        }
+
+        const datePattern = /^(\d{2})\.(\d{2})\.(\d{4})$/;
+        if (!datePattern.test(value)) {
+          throw new Error(`${fieldName} должен быть в формате ДД.ММ.ГГГГ`);
+        }
+
+        const [day, month, year] = value.split(".");
+        const date = new Date(`${year}-${month}-${day}`);
+        if (isNaN(date.getTime())) {
+          throw new Error(`${fieldName} содержит невалидную дату`);
+        }
+
+        return true;
+      })
+      .customSanitizer((value) => {
+        if (!value || value === "") return null;
+
+        // Преобразование из ДД.ММ.ГГГГ в ГГГГ-ММ-ДД для БД
+        const [day, month, year] = value.split(".");
+        return `${year}-${month}-${day}`;
+      });
+  }
+
+  static documentFormat(options = {}) {
+    const { required = false } = options;
+
+    let validator = body("documentFormat")
+      .isIn(["pdf", "edo"])
+      .withMessage("Формат должен быть 'PDF' или 'ЭДО'");
+
+    if (required) {
+      validator = validator
+        .notEmpty()
+        .withMessage("Формат документа обязателен");
+    } else {
+      validator = validator.optional();
+    }
+
+    return validator;
+  }
+
+  static totalAmount(options = {}) {
+    const { required = false, min = 0.01, max = 9999999.99 } = options;
+
+    let validator = body("totalAmount")
+      .isFloat({ min, max })
+      .withMessage(
+        `Итоговая сумма должна быть от ${min} до ${max.toLocaleString()}`,
+      )
+      .toFloat();
+
+    if (required) {
+      validator = validator
+        .notEmpty()
+        .withMessage("Итоговая сумма обязательна");
+    } else {
+      validator = validator.optional();
+    }
+
+    return validator;
+  }
 }
 
 // ───────────────────────────────────────────────
@@ -281,14 +401,51 @@ const validateApplicationCreate = [
   ValidatorFactory.assignedAccountantId({ required: true }),
 
   body().custom((value, { req }) => {
-    if (!req.body.cost) {
-      throw new Error("Для данного типа запроса необходимо указать стоимость");
-    }
-    if (!req.body.quantity) {
-      throw new Error("Для данного типа запроса необходимо указать количество");
+    const { requestType } = req.body;
+
+    if (requestType === "document_request") {
+      // Проверяем обязательные поля для document_request
+      const requiredFields = [
+        "documentType",
+        "inn",
+        "accountNumber",
+        "periodFrom",
+        "periodTo",
+        "documentFormat",
+        "totalAmount",
+      ];
+
+      for (const field of requiredFields) {
+        if (!req.body[field] || req.body[field] === "") {
+          throw new Error(`Поле ${field} обязательно для document_request`);
+        }
+      }
+    } else {
+      // Проверяем обязательные поля для обычных заявок
+      if (!req.body.cost) {
+        throw new Error(
+          "Для данного типа запроса необходимо указать стоимость",
+        );
+      }
+      if (!req.body.quantity) {
+        throw new Error(
+          "Для данного типа запроса необходимо указать количество",
+        );
+      }
     }
     return true;
   }),
+
+  ValidatorFactory.documentType({ required: false }),
+  ValidatorFactory.inn({ required: false }),
+  ValidatorFactory.accountNumber({ required: false }),
+  ValidatorFactory.periodDate("periodFrom"),
+  ValidatorFactory.periodDate("periodTo"),
+  ValidatorFactory.documentFormat({ required: false }),
+  ValidatorFactory.totalAmount({ required: false }),
+
+  ValidatorFactory.cost({ required: false }),
+  ValidatorFactory.quantity({ required: false }),
 ];
 
 const validateDownload = [
@@ -412,10 +569,23 @@ router.post(
       if (requestType === "document_request") {
         applicationData.cost = null;
         applicationData.quantity = null;
+        applicationData.documentType = req.body.documentType;
+        applicationData.inn = req.body.inn;
+        applicationData.accountNumber = req.body.accountNumber;
+        applicationData.periodFrom = req.body.periodFrom;
+        applicationData.periodTo = req.body.periodTo;
+        applicationData.documentFormat = req.body.documentFormat;
+        applicationData.totalAmount = parseFloat(req.body.totalAmount);
       } else {
         applicationData.cost = parseFloat(cost);
         applicationData.quantity = parseInt(quantity, 10);
-        applicationData.documentDescription = null;
+        applicationData.documentType = null;
+        applicationData.inn = null;
+        applicationData.accountNumber = null;
+        applicationData.periodFrom = null;
+        applicationData.periodTo = null;
+        applicationData.documentFormat = null;
+        applicationData.totalAmount = null;
       }
 
       application = await Application.create(applicationData);
@@ -484,11 +654,20 @@ router.post(
           id: application.id,
           name: application.name,
           organization: application.organization,
+          requestType: application.requestType,
           cost: application.cost ? Number(application.cost) : null,
           quantity: application.quantity ? Number(application.quantity) : null,
+          documentType: application.documentType,
+          inn: application.inn,
+          accountNumber: application.accountNumber,
+          periodFrom: application.periodFrom,
+          periodTo: application.periodTo,
+          documentFormat: application.documentFormat,
+          totalAmount: application.totalAmount
+            ? Number(application.totalAmount)
+            : null,
           comment: application.comment,
           assignedAccountantId: Number(application.assignedAccountantId),
-          requestType: application.requestType,
           files: application.downloadLinks || [],
           createdAt: application.createdAt.toISOString(),
         },
@@ -664,7 +843,6 @@ router.get(
   },
 );
 
-// Обновление
 router.put(
   "/applications/:id",
   verifyToken,
@@ -674,16 +852,6 @@ router.put(
   require("../middleware/cleanupTmp"),
   async (req, res) => {
     const { id } = req.params;
-    const {
-      name,
-      organization,
-      cost,
-      quantity,
-      comment,
-      assignedAccountantId,
-      requestType,
-      documentDescription,
-    } = req.body;
 
     try {
       const application = await Application.findByPk(id);
@@ -697,40 +865,78 @@ router.put(
         (req.user.role === ROLES.MANAGER && application.userId === req.user.id);
 
       if (!canEdit) {
-        return res
-          .status(403)
-          .json({ message: "Нет прав на редактирование этой заявки" });
+        return res.status(403).json({ message: "Нет прав на редактирование" });
       }
 
       const updates = {};
-      if (name) updates.name = name;
-      if (organization) updates.organization = organization;
-      if (cost !== undefined) updates.cost = cost ? parseFloat(cost) : null;
-      if (quantity !== undefined)
-        updates.quantity = quantity ? parseInt(quantity, 10) : null;
-      if (comment !== undefined) updates.comment = comment;
-      if (requestType) updates.requestType = requestType;
+      const { requestType } = req.body;
 
-      if (assignedAccountantId) {
-        if (req.user.role !== ROLES.DIRECTOR) {
-          return res.status(403).json({
-            message: "Только директор может переназначать бухгалтера",
-          });
-        }
-        const newAccountant = await User.findByPk(assignedAccountantId);
+      if (req.body.name !== undefined) updates.name = req.body.name;
+      if (req.body.organization !== undefined)
+        updates.organization = req.body.organization;
+      if (req.body.comment !== undefined) updates.comment = req.body.comment;
+
+      if (req.body.assignedAccountantId && req.user.role === ROLES.DIRECTOR) {
+        const newAccountant = await User.findByPk(
+          req.body.assignedAccountantId,
+        );
         if (!newAccountant || newAccountant.role !== ROLES.ACCOUNTANT) {
-          return res
-            .status(400)
-            .json({ message: "Неверный assignedAccountantId" });
+          return res.status(400).json({ message: "Неверный ID бухгалтера" });
         }
-        updates.assignedAccountantId = parseInt(assignedAccountantId, 10);
+        updates.assignedAccountantId = parseInt(
+          req.body.assignedAccountantId,
+          10,
+        );
       }
 
-      const existingFiles = application.files || [];
-      const newFiles = [];
+      if (
+        application.requestType === "document_request" ||
+        requestType === "document_request"
+      ) {
+        if (req.body.documentType !== undefined)
+          updates.documentType = req.body.documentType;
+        if (req.body.inn !== undefined) updates.inn = req.body.inn;
+        if (req.body.accountNumber !== undefined)
+          updates.accountNumber = req.body.accountNumber;
+
+        if (req.body.periodFrom) {
+          const [day, month, year] = req.body.periodFrom.split(".");
+          updates.periodFrom = `${year}-${month}-${day}`;
+        }
+        if (req.body.periodTo) {
+          const [day, month, year] = req.body.periodTo.split(".");
+          updates.periodTo = `${year}-${month}-${day}`;
+        }
+
+        if (req.body.documentFormat !== undefined)
+          updates.documentFormat = req.body.documentFormat;
+        if (req.body.totalAmount !== undefined)
+          updates.totalAmount = parseFloat(req.body.totalAmount);
+
+        updates.cost = null;
+        updates.quantity = null;
+      } else {
+        if (req.body.cost !== undefined)
+          updates.cost = parseFloat(req.body.cost);
+        if (req.body.quantity !== undefined)
+          updates.quantity = parseInt(req.body.quantity, 10);
+
+        updates.documentType = null;
+        updates.inn = null;
+        updates.accountNumber = null;
+        updates.periodFrom = null;
+        updates.periodTo = null;
+        updates.documentFormat = null;
+        updates.totalAmount = null;
+      }
+
       if (req.files?.length > 0) {
         const uploadDir = path.join(process.cwd(), "uploads", String(id));
         await fs.ensureDir(uploadDir);
+
+        const existingFiles = application.files || [];
+        const newFiles = [];
+
         for (const file of req.files) {
           const uniqueFilename = await generateUniqueFilename(
             uploadDir,
@@ -739,7 +945,9 @@ router.put(
           );
           const originalName = sanitizeFilename(file.originalname);
           const newPath = path.join(uploadDir, uniqueFilename);
+
           await fs.move(file.path, newPath, { overwrite: false });
+
           newFiles.push({
             stored: uniqueFilename,
             original: originalName,
@@ -748,8 +956,9 @@ router.put(
             addedAt: new Date().toISOString(),
           });
         }
+
+        updates.files = [...existingFiles, ...newFiles];
       }
-      updates.files = [...existingFiles, ...newFiles];
 
       await application.update(updates);
 
@@ -768,41 +977,13 @@ router.put(
         ],
       });
 
-      if (!updatedApplication) {
-        return res
-          .status(404)
-          .json({ message: "Заявка пропала после обновления" });
-      }
-
-      const plain = updatedApplication.get({ plain: true });
-      plain.updatedBy = req.user.id;
-      if (req.user) {
-        plain.Updater = {
-          id: req.user.id,
-          username: req.user.username,
-          role: req.user.role,
-        };
-      }
-      const { io } = require("../server");
-      io.to(`user:${plain.userId}`).emit("application:updated", plain);
-      io.emit("application:updated", plain);
-      if (plain.assignedAccountantId) {
-        io.to(`user:${plain.assignedAccountantId}`).emit(
-          "application:updated",
-          plain,
-        );
-      }
-      io.to("role:director").emit("application:updated", plain);
-
       res.json({
-        application: plain,
+        message: "Заявка успешно обновлена",
+        application: updatedApplication,
       });
     } catch (err) {
-      console.error("Ошибка редактирования заявки:", err);
-      res.status(500).json({
-        message: "Ошибка сервера",
-        error: process.env.NODE_ENV === "development" ? err.message : undefined,
-      });
+      console.error("Ошибка обновления заявки:", err);
+      res.status(500).json({ message: "Ошибка сервера" });
     }
   },
 );

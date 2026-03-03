@@ -25,11 +25,11 @@ const Application = sequelize.define(
     },
     cost: {
       type: DataTypes.DECIMAL(10, 2),
-      allowNull: false,
+      allowNull: true,
     },
     quantity: {
       type: DataTypes.INTEGER,
-      allowNull: false,
+      allowNull: true,
     },
     comment: {
       type: DataTypes.TEXT,
@@ -70,6 +70,48 @@ const Application = sequelize.define(
       },
       onDelete: "SET NULL",
       onUpdate: "CASCADE",
+    },
+
+    documentType: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      comment: "Тип документа: акт выполненных работ или акт сверки",
+    },
+
+    inn: {
+      type: DataTypes.STRING(12),
+      allowNull: true,
+      comment: "ИНН организации (10 или 12 цифр)",
+    },
+
+    accountNumber: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+      comment: "Номер счёта",
+    },
+
+    periodFrom: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+      comment: "Начало периода",
+    },
+
+    periodTo: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+      comment: "Конец периода",
+    },
+
+    documentFormat: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      comment: "Формат документа: PDF или ЭДО",
+    },
+
+    totalAmount: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: true,
+      comment: "Итоговая сумма",
     },
   },
   {
