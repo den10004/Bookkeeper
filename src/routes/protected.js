@@ -708,7 +708,7 @@ router.get("/applications", verifyToken, async (req, res) => {
 
     let where = {};
 
-    if (req.user.role === ROLES.DIRECTOR) {
+    if (req.user.role === ROLES.DIRECTOR || ROLES.ROP) {
     } else if (req.user.role === ROLES.ACCOUNTANT) {
       where = { assignedAccountantId: req.user.id };
     } else if (req.user.role === ROLES.MANAGER) {
@@ -861,6 +861,7 @@ router.put(
 
       const canEdit =
         req.user.role === ROLES.DIRECTOR ||
+        ROLES.ROP ||
         application.assignedAccountantId === req.user.id ||
         (req.user.role === ROLES.MANAGER && application.userId === req.user.id);
 
@@ -876,7 +877,10 @@ router.put(
         updates.organization = req.body.organization;
       if (req.body.comment !== undefined) updates.comment = req.body.comment;
 
-      if (req.body.assignedAccountantId && req.user.role === ROLES.DIRECTOR) {
+      if (
+        (req.body.assignedAccountantId && req.user.role === ROLES.DIRECTOR) ||
+        ROLES.ROP
+      ) {
         const newAccountant = await User.findByPk(
           req.body.assignedAccountantId,
         );

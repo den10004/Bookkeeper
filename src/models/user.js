@@ -27,7 +27,7 @@ const User = sequelize.define(
       allowNull: false,
     },
     role: {
-      type: DataTypes.ENUM("accountant", "director", "manager"),
+      type: DataTypes.ENUM("accountant", "director", "manager", "rop"),
       allowNull: false,
     },
     refreshTokenHash: {
