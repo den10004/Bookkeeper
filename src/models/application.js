@@ -30,6 +30,11 @@ const Application = sequelize.define(
       type: DataTypes.TEXT,
       allowNull: true,
     },
+    requestType: {
+      type: DataTypes.ENUM("new_client", "existing_client", "document_request"),
+      allowNull: false,
+      defaultValue: "new_client",
+    },
     files: {
       type: DataTypes.JSON,
       defaultValue: [],

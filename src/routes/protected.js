@@ -697,7 +697,6 @@ router.put(
       comment,
       assignedAccountantId,
       requestType,
-      documentDescription,
     } = req.body;
 
     try {
