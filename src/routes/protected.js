@@ -281,26 +281,11 @@ const validateApplicationCreate = [
   ValidatorFactory.assignedAccountantId({ required: true }),
 
   body().custom((value, { req }) => {
-    if (req.body.requestType === "document_request") {
-      if (!req.body.documentType) {
-        throw new Error(
-          "Для запроса документа необходимо указать тип документа",
-        );
-      }
-      if (!req.body.documentDescription) {
-        throw new Error("Для запроса документа необходимо указать описание");
-      }
-    } else {
-      if (!req.body.cost) {
-        throw new Error(
-          "Для данного типа запроса необходимо указать стоимость",
-        );
-      }
-      if (!req.body.quantity) {
-        throw new Error(
-          "Для данного типа запроса необходимо указать количество",
-        );
-      }
+    if (!req.body.cost) {
+      throw new Error("Для данного типа запроса необходимо указать стоимость");
+    }
+    if (!req.body.quantity) {
+      throw new Error("Для данного типа запроса необходимо указать количество");
     }
     return true;
   }),
@@ -697,6 +682,7 @@ router.put(
       comment,
       assignedAccountantId,
       requestType,
+      documentDescription,
     } = req.body;
 
     try {

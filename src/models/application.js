@@ -5,6 +5,11 @@ const User = require("./user");
 const Application = sequelize.define(
   "Application",
   {
+    requestType: {
+      type: DataTypes.ENUM("new_client", "existing_client", "document_request"),
+      allowNull: false,
+      defaultValue: "new_client",
+    },
     id: {
       type: DataTypes.INTEGER,
       autoIncrement: true,
@@ -29,11 +34,6 @@ const Application = sequelize.define(
     comment: {
       type: DataTypes.TEXT,
       allowNull: true,
-    },
-    requestType: {
-      type: DataTypes.ENUM("new_client", "existing_client", "document_request"),
-      allowNull: false,
-      defaultValue: "new_client",
     },
     files: {
       type: DataTypes.JSON,
