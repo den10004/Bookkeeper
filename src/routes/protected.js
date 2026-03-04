@@ -534,17 +534,13 @@ router.post(
   roleMiddleware([ROLES.MANAGER, ROLES.ROP]),
   upload.array("files", 10),
 
-  // ← Вот этот блок — фикс кодировки имён файлов
   (req, res, next) => {
     if (req.files && Array.isArray(req.files) && req.files.length > 0) {
       req.files.forEach((file) => {
         if (file.originalname) {
           try {
-            // Самый частый случай: байты UTF-8 прочитаны как latin1
             const buffer = Buffer.from(file.originalname, "latin1");
             const corrected = buffer.toString("utf8");
-
-            // Дополнительная проверка: если после исправления появились осмысленные русские буквы
             if (
               /[а-яёА-ЯЁ]/.test(corrected) &&
               corrected !== file.originalname
@@ -556,7 +552,6 @@ router.post(
               `Не удалось исправить кодировку имени: ${file.originalname}`,
               err,
             );
-            // оставляем как есть — лучше сломанное имя, чем ошибка
           }
         }
       });

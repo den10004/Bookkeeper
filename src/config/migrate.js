@@ -1,4 +1,3 @@
-// scripts/migrate.js
 require("dotenv").config();
 const sequelize = require("./db");
 const { QueryTypes } = require("sequelize");
