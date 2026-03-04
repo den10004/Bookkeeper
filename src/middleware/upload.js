@@ -62,7 +62,7 @@ const upload = multer({
     } else {
       cb(
         new Error(
-          `Недопустимый формат файла. Разрешенные форматы: ${allowedExts.join(", ")}`,
+          `Недопустимый формат файла. Разрешённые форматы: ${allowedExts.join(", ")}`,
         ),
       );
     }

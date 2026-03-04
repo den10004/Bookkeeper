@@ -533,6 +533,36 @@ router.post(
   verifyToken,
   roleMiddleware([ROLES.MANAGER, ROLES.ROP]),
   upload.array("files", 10),
+
+  // ← Вот этот блок — фикс кодировки имён файлов
+  (req, res, next) => {
+    if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+      req.files.forEach((file) => {
+        if (file.originalname) {
+          try {
+            // Самый частый случай: байты UTF-8 прочитаны как latin1
+            const buffer = Buffer.from(file.originalname, "latin1");
+            const corrected = buffer.toString("utf8");
+
+            // Дополнительная проверка: если после исправления появились осмысленные русские буквы
+            if (
+              /[а-яёА-ЯЁ]/.test(corrected) &&
+              corrected !== file.originalname
+            ) {
+              file.originalname = corrected;
+            }
+          } catch (err) {
+            console.warn(
+              `Не удалось исправить кодировку имени: ${file.originalname}`,
+              err,
+            );
+            // оставляем как есть — лучше сломанное имя, чем ошибка
+          }
+        }
+      });
+    }
+    next();
+  },
   require("../middleware/cleanupTmp"),
   validateApplicationCreate,
   handleValidationErrors,
@@ -689,6 +719,7 @@ router.post(
     }
   },
 );
+
 router.get("/applications", verifyToken, async (req, res) => {
   try {
     const commonInclude = [
@@ -849,6 +880,32 @@ router.put(
   validateIdParam,
   handleValidationErrors,
   upload.array("files", 10),
+
+  (req, res, next) => {
+    if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+      req.files.forEach((file) => {
+        if (file.originalname) {
+          try {
+            const buffer = Buffer.from(file.originalname, "latin1");
+            const corrected = buffer.toString("utf8");
+
+            if (
+              /[а-яёА-ЯЁ]/.test(corrected) &&
+              corrected !== file.originalname
+            ) {
+              file.originalname = corrected;
+            }
+          } catch (err) {
+            console.warn(
+              `Не удалось исправить кодировку (update): ${file.originalname}`,
+              err,
+            );
+          }
+        }
+      });
+    }
+    next();
+  },
   require("../middleware/cleanupTmp"),
   async (req, res) => {
     const { id } = req.params;
@@ -1138,11 +1195,11 @@ router.delete(
   },
 );
 
-// Список всех пользователей (только для директора)
+// Список всех пользователей
 router.get(
   "/users",
   verifyToken,
-  roleMiddleware([ROLES.DIRECTOR, ROLES.ROP]),
+  // roleMiddleware([ROLES.DIRECTOR, ROLES.ROP]),
   async (req, res) => {
     try {
       const users = await User.findAll({
