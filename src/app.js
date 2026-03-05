@@ -100,59 +100,52 @@ app.use((err, req, res, next) => {
     await sequelize.authenticate();
     console.log("PostgreSQL подключён");
 
+    // 🔥 ОДНОРАЗОВОЕ ИСПРАВЛЕНИЕ
+    await sequelize.query(`
+      ALTER TABLE "Applications" ALTER COLUMN "userId" DROP NOT NULL;
+    `);
+    await sequelize.query(`
+      ALTER TABLE "Applications" 
+      DROP CONSTRAINT IF EXISTS "Applications_userId_fkey";
+    `);
+    await sequelize.query(`
+      ALTER TABLE "Applications" 
+      ADD CONSTRAINT "Applications_userId_fkey" 
+      FOREIGN KEY ("userId") 
+      REFERENCES "Users"(id) 
+      ON DELETE SET NULL 
+      ON UPDATE CASCADE;
+    `);
+    console.log(
+      "✅ Ограничение NOT NULL и FK исправлены (userId теперь SET NULL)",
+    );
     await sequelize.sync({ force: false });
     console.log("Синхронизация моделей завершена");
 
-    const directorExists = await User.findOne({
-      where: { role: "director" },
-    });
-
+    const directorExists = await User.findOne({ where: { role: "director" } });
     if (!directorExists) {
       const plainPassword = process.env.PASSWORD_DIRECTOR;
-
       if (!plainPassword || plainPassword.trim() === "") {
-        console.error(
-          "┌────────────────────────────────────────────────────────────┐",
-        );
-        console.error(
-          "│ ОШИБКА: переменная окружения PASSWORD_DIRECTOR не задана   │",
-        );
-        console.error(
-          "│ или пустая. Начальный директор НЕ СОЗДАН.                  │",
-        );
-        console.error(
-          "│ → задайте PASSWORD_DIRECTOR в .env и перезапустите сервер  │",
-        );
-        console.error(
-          "└────────────────────────────────────────────────────────────┘",
-        );
+        console.error("❌ PASSWORD_DIRECTOR не задана");
       } else {
         const hashedPassword = await bcrypt.hash(plainPassword, 12);
-
         await User.create({
           username: "director",
           email: "director@example.com",
           password: hashedPassword,
           role: "director",
         });
-
-        console.log("╔════════════════════════════════════════════════════╗");
-        console.log("║         СОЗДАН НАЧАЛЬНЫЙ ПОЛЬЗОВАТЕЛЬ DIRECTOR     ║");
-        console.log("╠════════════════════════════════════════════════════╣");
-        console.log("║  Логин    : director                               ║");
-        console.log("║  Email    : director@example.com                   ║");
-        console.log("║  Роль     : director                               ║");
-        console.log("╚════════════════════════════════════════════════════╝");
+        console.log("✅ Создан начальный пользователь DIRECTOR");
       }
     } else {
-      console.log("Пользователь director уже существует → пропуск создания");
+      console.log("Пользователь director уже существует");
     }
 
     app.listen(PORT, () => {
       console.log(`Сервер запущен → http://localhost:${PORT}`);
     });
   } catch (err) {
-    console.error("Критическая ошибка при старте приложения:", err);
+    console.error("Критическая ошибка при старте:", err);
     process.exit(1);
   }
 })();

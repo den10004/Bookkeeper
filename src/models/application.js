@@ -38,8 +38,6 @@ const Application = sequelize.define(
     files: {
       type: DataTypes.JSON,
       defaultValue: [],
-      comment:
-        "Массив объектов: [{ stored: 'uuid.ext', original: 'имя файла' }]",
     },
     downloadLinks: {
       type: DataTypes.VIRTUAL,
@@ -52,13 +50,16 @@ const Application = sequelize.define(
       },
     },
 
+    // ─────── ИСПРАВЛЕННЫЙ БЛОК userId ───────
     userId: {
       type: DataTypes.INTEGER,
-      allowNull: false,
+      allowNull: true, // ← было false
       references: {
         model: User,
         key: "id",
       },
+      onDelete: "SET NULL", // ← главное исправление
+      onUpdate: "CASCADE",
     },
 
     assignedAccountantId: {
@@ -72,71 +73,40 @@ const Application = sequelize.define(
       onUpdate: "CASCADE",
     },
 
-    documentType: {
-      type: DataTypes.STRING,
-      allowNull: true,
-      comment: "Тип документа: акт выполненных работ или акт сверки",
-    },
-
-    inn: {
-      type: DataTypes.STRING(12),
-      allowNull: true,
-      comment: "ИНН организации (10 или 12 цифр)",
-    },
-
-    accountNumber: {
-      type: DataTypes.STRING(20),
-      allowNull: true,
-      comment: "Номер счёта",
-    },
-
-    periodFrom: {
-      type: DataTypes.DATEONLY,
-      allowNull: true,
-      comment: "Начало периода",
-    },
-
-    periodTo: {
-      type: DataTypes.DATEONLY,
-      allowNull: true,
-      comment: "Конец периода",
-    },
-
-    documentFormat: {
-      type: DataTypes.STRING,
-      allowNull: true,
-      comment: "Формат документа: PDF или ЭДО",
-    },
-
-    totalAmount: {
-      type: DataTypes.DECIMAL(10, 2),
-      allowNull: true,
-      comment: "Итоговая сумма",
-    },
+    documentType: { type: DataTypes.STRING, allowNull: true },
+    inn: { type: DataTypes.STRING(12), allowNull: true },
+    accountNumber: { type: DataTypes.STRING(20), allowNull: true },
+    periodFrom: { type: DataTypes.DATEONLY, allowNull: true },
+    periodTo: { type: DataTypes.DATEONLY, allowNull: true },
+    documentFormat: { type: DataTypes.STRING, allowNull: true },
+    totalAmount: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
   },
-  {
-    timestamps: true,
-  },
+  { timestamps: true },
 );
 
+// ─────── ИСПРАВЛЕННЫЕ АССОЦИАЦИИ ───────
 User.hasMany(Application, {
   foreignKey: "userId",
   as: "CreatedApplications",
+  onDelete: "SET NULL",
 });
 
 Application.belongsTo(User, {
   foreignKey: "userId",
   as: "Creator",
+  onDelete: "SET NULL",
 });
 
 User.hasMany(Application, {
   foreignKey: "assignedAccountantId",
   as: "AssignedApplications",
+  onDelete: "SET NULL",
 });
 
 Application.belongsTo(User, {
   foreignKey: "assignedAccountantId",
   as: "AssignedAccountant",
+  onDelete: "SET NULL",
 });
 
 module.exports = Application;
