@@ -108,5 +108,9 @@ Application.belongsTo(User, {
   as: "AssignedAccountant",
   onDelete: "SET NULL",
 });
+Application.belongsTo(User, {
+  as: "Updater",
+  foreignKey: "updatedBy",
+});
 
 module.exports = Application;

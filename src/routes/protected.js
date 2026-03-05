@@ -906,6 +906,11 @@ router.put(
     const { id } = req.params;
 
     try {
+      console.log("=== ОБНОВЛЕНИЕ ЗАЯВКИ ===");
+      console.log("ID заявки:", id);
+      console.log("ID пользователя:", req.user?.id);
+      console.log("Роль пользователя:", req.user?.role);
+
       const application = await Application.findByPk(id);
       if (!application) {
         return res.status(404).json({ message: "Заявка не найдена" });
@@ -913,7 +918,7 @@ router.put(
 
       const canEdit =
         req.user.role === ROLES.DIRECTOR ||
-        ROLES.ROP ||
+        req.user.role === ROLES.ROP ||
         application.assignedAccountantId === req.user.id ||
         (req.user.role === ROLES.MANAGER && application.userId === req.user.id);
 
@@ -921,7 +926,10 @@ router.put(
         return res.status(403).json({ message: "Нет прав на редактирование" });
       }
 
-      const updates = {};
+      const updates = {
+        updatedBy: req.user.id,
+        updatedAt: new Date(),
+      };
       const { requestType } = req.body;
 
       if (req.body.name !== undefined) updates.name = req.body.name;
@@ -930,25 +938,30 @@ router.put(
       if (req.body.comment !== undefined) updates.comment = req.body.comment;
 
       if (
-        (req.body.assignedAccountantId && req.user.role === ROLES.DIRECTOR) ||
-        ROLES.ROP
+        req.body.assignedAccountantId !== undefined &&
+        (req.user.role === ROLES.DIRECTOR || req.user.role === ROLES.ROP)
       ) {
-        const newAccountant = await User.findByPk(
-          req.body.assignedAccountantId,
-        );
-        if (!newAccountant || newAccountant.role !== ROLES.ACCOUNTANT) {
-          return res.status(400).json({ message: "Неверный ID бухгалтера" });
+        if (req.body.assignedAccountantId) {
+          const newAccountant = await User.findByPk(
+            req.body.assignedAccountantId,
+          );
+          if (!newAccountant || newAccountant.role !== ROLES.ACCOUNTANT) {
+            return res.status(400).json({ message: "Неверный ID бухгалтера" });
+          }
+          updates.assignedAccountantId = parseInt(
+            req.body.assignedAccountantId,
+            10,
+          );
+        } else {
+          updates.assignedAccountantId = null;
         }
-        updates.assignedAccountantId = parseInt(
-          req.body.assignedAccountantId,
-          10,
-        );
       }
 
-      if (
+      const isDocumentRequest =
         application.requestType === "document_request" ||
-        requestType === "document_request"
-      ) {
+        requestType === "document_request";
+
+      if (isDocumentRequest) {
         if (req.body.documentType !== undefined)
           updates.documentType = req.body.documentType;
         if (req.body.inn !== undefined) updates.inn = req.body.inn;
@@ -1016,6 +1029,8 @@ router.put(
         updates.files = [...existingFiles, ...newFiles];
       }
 
+      console.log("Применяем обновления:", updates);
+
       await application.update(updates);
 
       const updatedApplication = await Application.findByPk(id, {
@@ -1030,6 +1045,11 @@ router.put(
             as: "AssignedAccountant",
             attributes: ["id", "username", "email", "role"],
           },
+          {
+            model: User,
+            as: "Updater",
+            attributes: ["id", "username", "email", "role"],
+          },
         ],
       });
 
@@ -1037,9 +1057,34 @@ router.put(
         message: "Заявка успешно обновлена",
         application: updatedApplication,
       });
+
+      try {
+        const { io } = require("../server");
+        if (io) {
+          const appJson = updatedApplication.toJSON();
+
+          if (!appJson.Updater && req.user) {
+            appJson.Updater = {
+              id: req.user.id,
+              username: req.user.username,
+              email: req.user.email,
+              role: req.user.role,
+            };
+          }
+          io.emit("application:updated", appJson);
+        } else {
+          console.error("❌ Socket.io не найден");
+        }
+      } catch (socketError) {
+        console.error("❌ Ошибка при отправке сокет-события:", socketError);
+      }
     } catch (err) {
-      console.error("Ошибка обновления заявки:", err);
-      res.status(500).json({ message: "Ошибка сервера" });
+      console.error("❌ Ошибка обновления заявки:", err);
+      console.error("Stack:", err.stack);
+      res.status(500).json({
+        message: "Ошибка сервера",
+        error: process.env.NODE_ENV === "development" ? err.message : undefined,
+      });
     }
   },
 );
@@ -1056,17 +1101,17 @@ router.delete(
       if (req.user.role !== ROLES.DIRECTOR && req.user.role !== ROLES.ROP) {
         return res.status(403).json({
           message: "Доступ запрещён",
-          reason: "Удалять заявки может только пользователь с ролью директор",
+          reason:
+            "Удалять заявки может только пользователь с ролью директор или РОП",
         });
       }
-
       const application = await Application.findByPk(id);
+
       if (!application) {
         return res.status(404).json({ message: "Заявка не найдена" });
       }
 
-      const creatorId = application.userId;
-      const accountantId = application.assignedAccountantId;
+      const applicationName = application.name || "Без названия";
 
       if (application.files && application.files.length > 0) {
         const uploadDir = path.join(process.cwd(), "uploads", String(id));
@@ -1078,23 +1123,26 @@ router.delete(
       }
 
       await application.destroy();
-      const payload = { id: String(id) };
-      const { io } = require("../server");
-      io.to(`user:${req.user.id}`).emit("application:deleted", payload);
 
-      if (creatorId) {
-        io.to(`user:${creatorId}`).emit("application:deleted", payload);
+      try {
+        const { io } = require("../server");
+        if (io) {
+          const payload = {
+            id: String(id),
+            name: applicationName,
+            deletedBy: req.user.id,
+            deletedByUsername: req.user.username,
+            timestamp: new Date().toISOString(),
+          };
+
+          io.emit("application:deleted", payload);
+        } else {
+          console.error("Socket.io не найден");
+        }
+      } catch (socketError) {
+        console.error("Ошибка при отправке сокет-события:", socketError);
       }
 
-      if (accountantId) {
-        io.to(`user:${accountantId}`).emit("application:deleted", payload);
-      }
-
-      io.to("role:director").emit("application:deleted", payload);
-      io.emit("application:deleted", {
-        id: application.id,
-        deletedBy: req.user.id,
-      });
       res.json({
         message: "Заявка успешно удалена",
         deletedId: id,
