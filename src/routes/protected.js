@@ -906,11 +906,6 @@ router.put(
     const { id } = req.params;
 
     try {
-      console.log("=== ОБНОВЛЕНИЕ ЗАЯВКИ ===");
-      console.log("ID заявки:", id);
-      console.log("ID пользователя:", req.user?.id);
-      console.log("Роль пользователя:", req.user?.role);
-
       const application = await Application.findByPk(id);
       if (!application) {
         return res.status(404).json({ message: "Заявка не найдена" });
@@ -1029,10 +1024,8 @@ router.put(
         updates.files = [...existingFiles, ...newFiles];
       }
 
-      // ========== ЛОГИКА СТАТУСА ==========
       const { APPLICATION_STATUSES } = require("../models/application");
 
-      // Проверяем, были ли реальные изменения
       const hasChanges = Object.keys(updates).some(
         (key) =>
           key !== "updatedBy" &&
@@ -1041,7 +1034,6 @@ router.put(
           key !== "statusComment",
       );
 
-      // Явное изменение статуса (приоритет 1)
       if (req.body.status) {
         if (Object.values(APPLICATION_STATUSES).includes(req.body.status)) {
           updates.status = req.body.status;
@@ -1059,28 +1051,12 @@ router.put(
           });
         }
       }
-      // Автоматическое обновление статуса (приоритет 2)
-      else if (hasChanges && application.status !== APPLICATION_STATUSES.NEW) {
+      // Автоматическое обновление статуса
+      else if (hasChanges) {
         updates.status = APPLICATION_STATUSES.UPDATED;
         updates.statusComment = "Заявка обновлена через редактирование";
-        console.log(
-          `🔄 Автоматическое обновление статуса: ${application.status} -> ${APPLICATION_STATUSES.UPDATED}`,
-        );
-      } else if (
-        hasChanges &&
-        application.status === APPLICATION_STATUSES.NEW
-      ) {
-        console.log(
-          `📝 Заявка в статусе NEW обновлена, статус сохранён как NEW`,
-        );
-      } else {
-        console.log(
-          `ℹ️ Нет изменений в заявке, статус остаётся: ${application.status}`,
-        );
       }
-      // ========== КОНЕЦ ЛОГИКИ СТАТУСА ==========
 
-      console.log("Применяем обновления:", updates);
       await application.update(updates, {
         userId: req.user.id,
         individualHooks: true,
@@ -1435,7 +1411,7 @@ router.delete(
   },
 );
 
-// Получение всех доступных статусов
+// все статусы
 router.get("/statuses", verifyToken, (req, res) => {
   const { APPLICATION_STATUSES } = require("../models/application");
   res.json({
@@ -1455,7 +1431,7 @@ router.get("/statuses", verifyToken, (req, res) => {
 router.patch(
   "/applications/:id/status",
   verifyToken,
-  upload.none(), // Добавляем для поддержки form-data
+  upload.none(),
   [
     ValidatorFactory.id("id"),
     body("status")
@@ -1471,10 +1447,6 @@ router.patch(
   ],
   handleValidationErrors,
   async (req, res) => {
-    console.log("=== ИЗМЕНЕНИЕ СТАТУСА ===");
-    console.log("Status from body:", req.body.status);
-    console.log("Comment from body:", req.body.comment);
-
     const { id } = req.params;
     const { status, comment } = req.body;
 
@@ -1484,8 +1456,6 @@ router.patch(
       if (!application) {
         return res.status(404).json({ message: "Заявка не найдена" });
       }
-
-      // Проверка прав
       const canChangeStatus =
         req.user.role === ROLES.DIRECTOR ||
         req.user.role === ROLES.ROP ||
@@ -1500,7 +1470,6 @@ router.patch(
 
       const oldStatus = application.status;
 
-      // Обновляем статус
       const updateData = {
         status,
         updatedBy: req.user.id,
@@ -1530,7 +1499,6 @@ router.patch(
         ],
       });
 
-      // Socket событие
       try {
         const { io } = require("../server");
         if (io) {

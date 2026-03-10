@@ -107,7 +107,6 @@ const Application = sequelize.define(
     documentFormat: { type: DataTypes.STRING, allowNull: true },
     totalAmount: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
 
-    // Комментарий при изменении статуса (опционально)
     statusComment: {
       type: DataTypes.TEXT,
       allowNull: true,
@@ -116,10 +115,8 @@ const Application = sequelize.define(
   {
     timestamps: true,
 
-    // Простые хуки для статуса
     hooks: {
       beforeCreate: (application) => {
-        // При создании всегда NEW
         application.status = APPLICATION_STATUSES.NEW;
       },
     },
