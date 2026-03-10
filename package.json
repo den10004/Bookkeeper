@@ -5,8 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "nodemon src/server.js",
-    "migrate": "npx sequelize-cli db:migrate --config src/config/config.js --migrations-path src/migrations"
+    "dev": "nodemon src/server.js"
   },
   "repository": {
     "type": "git",

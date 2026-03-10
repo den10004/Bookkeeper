@@ -1,11 +1,8 @@
-// migrations/20240310-add-application-status.js
-
 "use strict";
 
 module.exports = {
   up: async (queryInterface, Sequelize) => {
     await queryInterface.sequelize.transaction(async (transaction) => {
-      // Создаем ENUM тип для статусов
       await queryInterface.sequelize.query(
         `
         CREATE TYPE "enum_Applications_status" AS ENUM (
@@ -20,26 +17,16 @@ module.exports = {
         { transaction },
       );
 
-      // Добавляем поле status
       await queryInterface.addColumn(
         "Applications",
         "status",
         {
-          type: Sequelize.DataTypes.ENUM(
-            "new",
-            "updated",
-            "accepted",
-            "in_progress",
-            "completed",
-            "rejected",
-          ),
+          type: Sequelize.DataTypes.ENUM("new", "updated"),
           defaultValue: "new",
           allowNull: false,
         },
         { transaction },
       );
-
-      // Добавляем поле statusComment (опционально)
       await queryInterface.addColumn(
         "Applications",
         "statusComment",
@@ -50,7 +37,6 @@ module.exports = {
         { transaction },
       );
 
-      // Устанавливаем статус 'new' для всех существующих записей
       await queryInterface.sequelize.query(
         `UPDATE "Applications" SET "status" = 'new' WHERE "status" IS NULL;`,
         { transaction },
@@ -60,15 +46,12 @@ module.exports = {
 
   down: async (queryInterface, Sequelize) => {
     await queryInterface.sequelize.transaction(async (transaction) => {
-      // Удаляем поля
       await queryInterface.removeColumn("Applications", "status", {
         transaction,
       });
       await queryInterface.removeColumn("Applications", "statusComment", {
         transaction,
       });
-
-      // Удаляем ENUM тип
       await queryInterface.sequelize.query(
         'DROP TYPE IF EXISTS "enum_Applications_status";',
         { transaction },

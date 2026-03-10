@@ -313,7 +313,6 @@ class ValidatorFactory {
       .customSanitizer((value) => {
         if (!value || value === "") return null;
 
-        // Преобразование из ДД.ММ.ГГГГ в ГГГГ-ММ-ДД для БД
         const [day, month, year] = value.split(".");
         return `${year}-${month}-${day}`;
       });

@@ -1,17 +1,10 @@
-// models/application.js
-
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
 const User = require("./user");
 
-// Константа со статусами
 const APPLICATION_STATUSES = {
   NEW: "new",
   UPDATED: "updated",
-  ACCEPTED: "accepted",
-  IN_PROGRESS: "in_progress",
-  COMPLETED: "completed",
-  REJECTED: "rejected",
 };
 
 const Application = sequelize.define(
@@ -23,15 +16,10 @@ const Application = sequelize.define(
       defaultValue: "new_client",
     },
 
-    // ПОЛЕ СТАТУСА
     status: {
       type: DataTypes.ENUM(
         APPLICATION_STATUSES.NEW,
         APPLICATION_STATUSES.UPDATED,
-        APPLICATION_STATUSES.ACCEPTED,
-        APPLICATION_STATUSES.IN_PROGRESS,
-        APPLICATION_STATUSES.COMPLETED,
-        APPLICATION_STATUSES.REJECTED,
       ),
       allowNull: false,
       defaultValue: APPLICATION_STATUSES.NEW,
