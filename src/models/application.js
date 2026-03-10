@@ -1,6 +1,18 @@
+// models/application.js
+
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
 const User = require("./user");
+
+// Константа со статусами
+const APPLICATION_STATUSES = {
+  NEW: "new",
+  UPDATED: "updated",
+  ACCEPTED: "accepted",
+  IN_PROGRESS: "in_progress",
+  COMPLETED: "completed",
+  REJECTED: "rejected",
+};
 
 const Application = sequelize.define(
   "Application",
@@ -10,6 +22,21 @@ const Application = sequelize.define(
       allowNull: false,
       defaultValue: "new_client",
     },
+
+    // ПОЛЕ СТАТУСА
+    status: {
+      type: DataTypes.ENUM(
+        APPLICATION_STATUSES.NEW,
+        APPLICATION_STATUSES.UPDATED,
+        APPLICATION_STATUSES.ACCEPTED,
+        APPLICATION_STATUSES.IN_PROGRESS,
+        APPLICATION_STATUSES.COMPLETED,
+        APPLICATION_STATUSES.REJECTED,
+      ),
+      allowNull: false,
+      defaultValue: APPLICATION_STATUSES.NEW,
+    },
+
     id: {
       type: DataTypes.INTEGER,
       autoIncrement: true,
@@ -50,15 +77,14 @@ const Application = sequelize.define(
       },
     },
 
-    // ─────── ИСПРАВЛЕННЫЙ БЛОК userId ───────
     userId: {
       type: DataTypes.INTEGER,
-      allowNull: true, // ← было false
+      allowNull: true,
       references: {
         model: User,
         key: "id",
       },
-      onDelete: "SET NULL", // ← главное исправление
+      onDelete: "SET NULL",
       onUpdate: "CASCADE",
     },
 
@@ -80,11 +106,27 @@ const Application = sequelize.define(
     periodTo: { type: DataTypes.DATEONLY, allowNull: true },
     documentFormat: { type: DataTypes.STRING, allowNull: true },
     totalAmount: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
+
+    // Комментарий при изменении статуса (опционально)
+    statusComment: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
   },
-  { timestamps: true },
+  {
+    timestamps: true,
+
+    // Простые хуки для статуса
+    hooks: {
+      beforeCreate: (application) => {
+        // При создании всегда NEW
+        application.status = APPLICATION_STATUSES.NEW;
+      },
+    },
+  },
 );
 
-// ─────── ИСПРАВЛЕННЫЕ АССОЦИАЦИИ ───────
+// Ассоциации
 User.hasMany(Application, {
   foreignKey: "userId",
   as: "CreatedApplications",
@@ -108,9 +150,11 @@ Application.belongsTo(User, {
   as: "AssignedAccountant",
   onDelete: "SET NULL",
 });
+
 Application.belongsTo(User, {
   as: "Updater",
   foreignKey: "updatedBy",
 });
 
 module.exports = Application;
+module.exports.APPLICATION_STATUSES = APPLICATION_STATUSES;

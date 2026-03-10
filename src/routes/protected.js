@@ -404,7 +404,6 @@ const validateApplicationCreate = [
     const { requestType } = req.body;
 
     if (requestType === "document_request") {
-      // Проверяем обязательные поля для document_request
       const requiredFields = [
         "documentType",
         "inn",
@@ -421,7 +420,6 @@ const validateApplicationCreate = [
         }
       }
     } else {
-      // Проверяем обязательные поля для обычных заявок
       if (!req.body.cost) {
         throw new Error(
           "Для данного типа запроса необходимо указать стоимость",
@@ -613,7 +611,9 @@ router.post(
         applicationData.totalAmount = null;
       }
 
-      application = await Application.create(applicationData);
+      application = await Application.create(applicationData, {
+        userId: req.user.id,
+      });
 
       const uploadDir = path.join(
         process.cwd(),
@@ -1029,9 +1029,62 @@ router.put(
         updates.files = [...existingFiles, ...newFiles];
       }
 
-      console.log("Применяем обновления:", updates);
+      // ========== ЛОГИКА СТАТУСА ==========
+      const { APPLICATION_STATUSES } = require("../models/application");
 
-      await application.update(updates);
+      // Проверяем, были ли реальные изменения
+      const hasChanges = Object.keys(updates).some(
+        (key) =>
+          key !== "updatedBy" &&
+          key !== "updatedAt" &&
+          key !== "status" &&
+          key !== "statusComment",
+      );
+
+      // Явное изменение статуса (приоритет 1)
+      if (req.body.status) {
+        if (Object.values(APPLICATION_STATUSES).includes(req.body.status)) {
+          updates.status = req.body.status;
+          if (req.body.statusComment) {
+            updates.statusComment = req.body.statusComment;
+          }
+          console.log(
+            `📌 Явное изменение статуса: ${application.status} -> ${req.body.status}`,
+          );
+        } else {
+          return res.status(400).json({
+            message:
+              "Некорректный статус. Допустимые значения: " +
+              Object.values(APPLICATION_STATUSES).join(", "),
+          });
+        }
+      }
+      // Автоматическое обновление статуса (приоритет 2)
+      else if (hasChanges && application.status !== APPLICATION_STATUSES.NEW) {
+        updates.status = APPLICATION_STATUSES.UPDATED;
+        updates.statusComment = "Заявка обновлена через редактирование";
+        console.log(
+          `🔄 Автоматическое обновление статуса: ${application.status} -> ${APPLICATION_STATUSES.UPDATED}`,
+        );
+      } else if (
+        hasChanges &&
+        application.status === APPLICATION_STATUSES.NEW
+      ) {
+        console.log(
+          `📝 Заявка в статусе NEW обновлена, статус сохранён как NEW`,
+        );
+      } else {
+        console.log(
+          `ℹ️ Нет изменений в заявке, статус остаётся: ${application.status}`,
+        );
+      }
+      // ========== КОНЕЦ ЛОГИКИ СТАТУСА ==========
+
+      console.log("Применяем обновления:", updates);
+      await application.update(updates, {
+        userId: req.user.id,
+        individualHooks: true,
+      });
 
       const updatedApplication = await Application.findByPk(id, {
         include: [
@@ -1058,6 +1111,7 @@ router.put(
         application: updatedApplication,
       });
 
+      // Socket события
       try {
         const { io } = require("../server");
         if (io) {
@@ -1071,9 +1125,24 @@ router.put(
               role: req.user.role,
             };
           }
+
           io.emit("application:updated", appJson);
-        } else {
-          console.error("❌ Socket.io не найден");
+
+          if (updates.status && updates.status !== application.status) {
+            io.emit("application:statusChanged", {
+              applicationId: id,
+              oldStatus: application.status,
+              newStatus: updates.status,
+              changedBy: {
+                id: req.user.id,
+                username: req.user.username,
+                role: req.user.role,
+              },
+              comment: updates.statusComment || "Статус изменён",
+              timestamp: new Date().toISOString(),
+              application: appJson,
+            });
+          }
         }
       } catch (socketError) {
         console.error("❌ Ошибка при отправке сокет-события:", socketError);
@@ -1362,6 +1431,307 @@ router.delete(
       res
         .status(500)
         .json({ message: "Ошибка сервера при удалении пользователя" });
+    }
+  },
+);
+
+// Получение всех доступных статусов
+router.get("/statuses", verifyToken, (req, res) => {
+  const { APPLICATION_STATUSES } = require("../models/application");
+  res.json({
+    statuses: Object.values(APPLICATION_STATUSES),
+    labels: {
+      new: "Новая",
+      updated: "Обновлена",
+      accepted: "Принята",
+      in_progress: "В работе",
+      completed: "Завершена",
+      rejected: "Отклонена",
+    },
+  });
+});
+
+// Обновление статуса заявки
+router.patch(
+  "/applications/:id/status",
+  verifyToken,
+  upload.none(), // Добавляем для поддержки form-data
+  [
+    ValidatorFactory.id("id"),
+    body("status")
+      .isIn(
+        Object.values(require("../models/application").APPLICATION_STATUSES),
+      )
+      .withMessage("Некорректный статус"),
+    body("comment")
+      .optional()
+      .isLength({ max: 500 })
+      .withMessage("Комментарий не должен превышать 500 символов")
+      .escape(),
+  ],
+  handleValidationErrors,
+  async (req, res) => {
+    console.log("=== ИЗМЕНЕНИЕ СТАТУСА ===");
+    console.log("Status from body:", req.body.status);
+    console.log("Comment from body:", req.body.comment);
+
+    const { id } = req.params;
+    const { status, comment } = req.body;
+
+    try {
+      const application = await Application.findByPk(id);
+
+      if (!application) {
+        return res.status(404).json({ message: "Заявка не найдена" });
+      }
+
+      // Проверка прав
+      const canChangeStatus =
+        req.user.role === ROLES.DIRECTOR ||
+        req.user.role === ROLES.ROP ||
+        application.assignedAccountantId === req.user.id ||
+        (req.user.role === ROLES.MANAGER && application.userId === req.user.id);
+
+      if (!canChangeStatus) {
+        return res.status(403).json({
+          message: "Нет прав для изменения статуса этой заявки",
+        });
+      }
+
+      const oldStatus = application.status;
+
+      // Обновляем статус
+      const updateData = {
+        status,
+        updatedBy: req.user.id,
+      };
+
+      if (comment) {
+        updateData.statusComment = comment;
+      }
+
+      await application.update(updateData, {
+        userId: req.user.id,
+        individualHooks: true,
+      });
+
+      const updatedApplication = await Application.findByPk(id, {
+        include: [
+          {
+            model: User,
+            as: "Creator",
+            attributes: ["id", "username", "email", "role"],
+          },
+          {
+            model: User,
+            as: "AssignedAccountant",
+            attributes: ["id", "username", "email", "role"],
+          },
+        ],
+      });
+
+      // Socket событие
+      try {
+        const { io } = require("../server");
+        if (io) {
+          io.emit("application:statusChanged", {
+            applicationId: id,
+            oldStatus,
+            newStatus: status,
+            changedBy: {
+              id: req.user.id,
+              username: req.user.username,
+              role: req.user.role,
+            },
+            comment: comment || null,
+            timestamp: new Date().toISOString(),
+            application: updatedApplication,
+          });
+        }
+      } catch (socketError) {
+        console.error("Ошибка при отправке сокет-события:", socketError);
+      }
+
+      res.json({
+        message: "Статус заявки успешно обновлён",
+        application: updatedApplication,
+        statusChanged: {
+          from: oldStatus,
+          to: status,
+          by: req.user.username,
+          comment: comment || null,
+        },
+      });
+    } catch (err) {
+      console.error("Ошибка при обновлении статуса заявки:", err);
+      res.status(500).json({
+        message: "Ошибка сервера при обновлении статуса",
+        error: process.env.NODE_ENV === "development" ? err.message : undefined,
+      });
+    }
+  },
+);
+
+// Получение истории статусов заявки
+router.get(
+  "/applications/:id/status-history",
+  verifyToken,
+  ValidatorFactory.id("id"),
+  handleValidationErrors,
+  async (req, res) => {
+    const { id } = req.params;
+
+    try {
+      const application = await Application.findByPk(id, {
+        attributes: ["id", "status", "statusHistory", "updatedAt"],
+        include: [
+          {
+            model: User,
+            as: "Creator",
+            attributes: ["id", "username", "email"],
+          },
+        ],
+      });
+
+      if (!application) {
+        return res.status(404).json({ message: "Заявка не найдена" });
+      }
+
+      const canView =
+        req.user.role === ROLES.DIRECTOR ||
+        req.user.role === ROLES.ROP ||
+        application.Creator?.id === req.user.id ||
+        application.assignedAccountantId === req.user.id;
+
+      if (!canView) {
+        return res.status(403).json({
+          message: "Нет доступа к истории статусов этой заявки",
+        });
+      }
+
+      const history = application.statusHistory || [];
+
+      res.json({
+        applicationId: id,
+        currentStatus: application.status,
+        history: history,
+        lastUpdated: application.updatedAt,
+      });
+    } catch (err) {
+      console.error("Ошибка при получении истории статусов:", err);
+      res.status(500).json({ message: "Ошибка сервера" });
+    }
+  },
+);
+
+// Массовое обновление статусов (для бухгалтера/директора/роп)
+router.patch(
+  "/applications/bulk-status",
+  verifyToken,
+  roleMiddleware([ROLES.DIRECTOR, ROLES.ROP, ROLES.ACCOUNTANT]),
+  [
+    body("applicationIds")
+      .isArray({ min: 1 })
+      .withMessage("Необходимо указать хотя бы один ID заявки"),
+    body("applicationIds.*")
+      .isInt({ min: 1 })
+      .withMessage("Некорректный ID заявки"),
+    body("status")
+      .isIn(
+        Object.values(require("../models/application").APPLICATION_STATUSES),
+      )
+      .withMessage("Некорректный статус"),
+    body("comment")
+      .optional()
+      .isLength({ max: 500 })
+      .withMessage("Комментарий не должен превышать 500 символов"),
+  ],
+  handleValidationErrors,
+  async (req, res) => {
+    const { applicationIds, status, comment } = req.body;
+
+    try {
+      const whereClause = {
+        id: applicationIds,
+      };
+
+      if (req.user.role === ROLES.ACCOUNTANT) {
+        whereClause.assignedAccountantId = req.user.id;
+      } else if (req.user.role === ROLES.MANAGER) {
+        whereClause.userId = req.user.id;
+      }
+
+      const applications = await Application.findAll({
+        where: whereClause,
+      });
+
+      if (applications.length === 0) {
+        return res.status(404).json({
+          message: "Не найдено заявок для обновления",
+        });
+      }
+
+      const updatedApplications = [];
+      const errors = [];
+
+      for (const application of applications) {
+        try {
+          const oldStatus = application.status;
+
+          await application.update(
+            {
+              status,
+              updatedBy: req.user.id,
+              statusComment: comment,
+            },
+            {
+              userId: req.user.id,
+              individualHooks: true,
+            },
+          );
+
+          updatedApplications.push({
+            id: application.id,
+            oldStatus,
+            newStatus: status,
+          });
+        } catch (err) {
+          errors.push({
+            id: application.id,
+            error: err.message,
+          });
+        }
+      }
+
+      try {
+        const { io } = require("../server");
+        if (io && updatedApplications.length > 0) {
+          io.emit("applications:bulkStatusChanged", {
+            count: updatedApplications.length,
+            status,
+            changedBy: {
+              id: req.user.id,
+              username: req.user.username,
+              role: req.user.role,
+            },
+            comment: comment || null,
+            applications: updatedApplications,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      } catch (socketError) {
+        console.error("Ошибка при отправке сокет-события:", socketError);
+      }
+
+      res.json({
+        message: `Обновлено ${updatedApplications.length} заявок`,
+        updated: updatedApplications,
+        errors: errors.length > 0 ? errors : undefined,
+        totalProcessed: applications.length,
+      });
+    } catch (err) {
+      console.error("Ошибка при массовом обновлении статусов:", err);
+      res.status(500).json({ message: "Ошибка сервера" });
     }
   },
 );
